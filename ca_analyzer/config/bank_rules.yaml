@@ -1,0 +1,33 @@
+banks:
+  HDFC:
+    header_keywords: ["date", "narration", "chq./ref.no.", "value dt", "withdrawal amt.", "deposit amt.", "closing balance"]
+    column_mapping:
+      "date": "Date"
+      "narration": "Narration"
+      "chq./ref.no.": "Chq_Ref"
+      "withdrawal amt.": "Debit"
+      "deposit amt.": "Credit"
+      "closing balance": "Balance"
+    ifsc_default: "HDFC0000000"
+
+  ICICI:
+    header_keywords: ["s no.", "value date", "transaction date", "cheque number", "transaction remarks", "withdrawal amount", "deposit amount", "balance"]
+    column_mapping:
+      "transaction date": "Date"
+      "transaction remarks": "Narration"
+      "cheque number": "Chq_Ref"
+      "withdrawal amount (inr )": "Debit"
+      "deposit amount (inr )": "Credit"
+      "balance (inr )": "Balance"
+    ifsc_default: "ICIC0000046"
+
+  SBI:
+    header_keywords: ["txn date", "value date", "description", "ref no./cheque no.", "branch code", "debit", "credit", "balance"]
+    column_mapping:
+      "txn date": "Date"
+      "description": "Narration"
+      "ref no./cheque no.": "Chq_Ref"
+      "debit": "Debit"
+      "credit": "Credit"
+      "balance": "Balance"
+    ifsc_default: "SBIN0000000"

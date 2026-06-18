@@ -1,0 +1,49 @@
+credit_categories:
+  Salary:
+    Salary Income: ["salary", "sal ", "sal/", "payroll", "ctc", "emolument", "wages", "stipend", "remuneration", "hrd", "hr dept"]
+    Bonus Income: ["bonus"]
+    Pension Income: ["pension"]
+  House Property:
+    Rental Income: ["rent", "rental income", "house rent", "tenancy"]
+  Other Sources:
+    Interest Income: ["interest", "int cr", "int credit", "fd int", "rd int", "savings int", "int on fd", "int on rd", "interest earned", "int income", "savings interest"]
+    Dividend Income: ["dividend", "div cr", "div credit", "idcw"]
+    Insurance Maturity: ["lic", "maturity", "life insurance", "sum assured"]
+  Business/Profession:
+    Business Receipts: ["invoice", "payment rcvd", "pymt rcvd", "trade", "sale proceeds", "business", "client", "gst refund", "export proceeds", "upi-sale"]
+    Professional Fees: ["professional fees", "consulting", "consultancy", "retainer", "advisory", "audit fees", "legal fees"]
+  Capital Gains:
+    Capital Market Inflow: ["redemption", "mutual fund", "mf units", "demat", "nsdl", "cdsl", "stocks", "shares", "equity", "brokerage receipt", "buyback"]
+  Loans:
+    Loan Received: ["loan disbursement", "loan credit", "od limit", "cc limit", "personal loan", "home loan cr", "education loan"]
+  Transfers:
+    Transfer In: ["neft", "rtgs", "imps", "transfer", "trf", "fund transfer", "received from"]
+
+debit_categories:
+  Loans:
+    Loan EMI: ["emi", "equated monthly", "loan repayment", "mortgage"]
+  Insurance:
+    Insurance Premium: ["insurance", "premium", "lic premium", "health insurance", "term plan", "ulip", "jeevan"]
+  Taxes:
+    Tax Payment: ["income tax", "advance tax", "self assessment tax", "tds payment", "challan 280", "challan 281", "challan no"]
+    GST Payment: ["gst", "igst", "cgst", "sgst", "gst payment", "gst challan"]
+  Investments:
+    Investment Outflow: ["sip", "mutual fund", "ppf", "nps", "elss", "tax saver", "post office", "nsc", "kvp", "sukanya"]
+  Utilities:
+    Utility Bills: ["electricity", "water bill", "gas bill", "broadband", "mobile bill", "recharge", "utility"]
+  Rent:
+    Rent Paid: ["rent paid", "house rent paid", "landlord", "pg rent", "hostel rent"]
+  Cash:
+    Cash Withdrawal: ["atm", "atm/cash", "cash withdrawal", "cash wd", "atm wd", "cash debit"]
+  Bounces:
+    Cheque Bounce: ["bounce", "dishonour", "returned", "insufficient", "inward bounce", "ecs bounce", "nach return", "mandate return"]
+  Food:
+    Food Expense: ["swiggy", "zomato", "restaurant", "hotel", "cafe", "food", "eats"]
+  Travel:
+    Travel Expense: ["uber", "ola", "travel", "fuel", "petrol", "irctc", "flight", "taxi", "transport", "metro"]
+  Shopping:
+    Shopping Expense: ["amazon", "flipkart", "myntra", "retail", "shopping", "reliance", "dmart"]
+  Medical:
+    Medical Expense: ["hospital", "pharmacy", "medical", "clinic", "doctor", "health", "apolo", "medplus"]
+
+cash_withdrawal_exclude: ["charge", "charges", "fund", "refund", "reversal", "fee", "annual"]

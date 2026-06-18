@@ -1,0 +1,40 @@
+CANONICAL_COLUMNS = [
+    "Person_Name",
+    "Bank_Name",
+    "Account_Number",
+    "IFSC",
+    "Statement_Start",
+    "Statement_End",
+    "Date",
+    "Narration",
+    "Chq_Ref",
+    "Debit",
+    "Credit",
+    "Balance",
+    "Merchant_Name",
+    "Transaction_Mode",
+    "Counterparty",
+    "Category",
+    "Sub_Category",
+    "txn_seq"
+]
+
+CANONICAL_TYPES = {
+    "Person_Name": str,
+    "Bank_Name": str,
+    "Account_Number": str,
+    "IFSC": str,
+    "Statement_Start": str,
+    "Statement_End": str,
+    "Narration": str,
+    "Chq_Ref": str,
+    "Debit": float,
+    "Credit": float,
+    "Balance": float,
+    "Merchant_Name": str,
+    "Transaction_Mode": str,
+    "Counterparty": str,
+    "Category": str,
+    "Sub_Category": str,
+    "txn_seq": int
+}

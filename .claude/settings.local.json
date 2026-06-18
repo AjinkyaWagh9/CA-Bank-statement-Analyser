@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init *)",
+      "Bash(git remote *)",
+      "Bash(git ls-remote *)",
+      "Bash(git checkout *)",
+      "Bash(git add *)",
+      "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'Baseline: working ca_analyzer pipeline + BRD, context, and implementation plan *)",
+      "Bash(git push *)"
+    ]
+  }
+}

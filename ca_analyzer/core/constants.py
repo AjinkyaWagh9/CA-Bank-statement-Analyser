@@ -1,0 +1,1 @@
+BANKS = ["HDFC", "ICICI", "SBI"]

@@ -1,0 +1,1 @@
+from ca_analyzer.presentation.report_builder import build_ca_report

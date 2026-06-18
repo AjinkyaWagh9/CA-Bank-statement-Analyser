@@ -1,0 +1,25 @@
+presentation:
+  font_family: "Calibri"
+  header_fill: "1F4E78"
+  header_font_color: "FFFFFF"
+  alternate_row_fill: "F2F5F9"
+  table_style: "TableStyleMedium2"
+  currency_format: "₹#,##0.00"
+  
+bank_colors:
+  HDFC: "DDEBF7"    # Light blue
+  ICICI: "FCE4D6"   # Light orange
+  SBI: "E2EFDA"     # Light green
+  UNKNOWN: "F2F2F2" # Light gray
+
+conditional_formatting:
+  credits_fill: "E2EFDA"     # Soft green
+  credits_font: "375623"
+  debits_fill: "FCE4D6"      # Soft red
+  debits_font: "C65911"
+  low_balance_fill: "FFF2CC" # Soft orange
+  low_font: "7F6000"
+  negative_cashflow_fill: "C00000" # Dark red
+  negative_cashflow_font: "FFFFFF"
+  high_value_fill: "FFFFCC"   # Soft yellow
+  high_value_font: "7F7F00"

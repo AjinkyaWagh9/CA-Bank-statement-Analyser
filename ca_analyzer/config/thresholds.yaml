@@ -1,0 +1,21 @@
+high_value_transaction:
+  threshold: 50000.0
+
+cash_deposit:
+  single_threshold: 50000.0
+  annual_threshold: 200000.0
+
+presumptive_tax:
+  sec_44ad: 20000000.0
+  sec_44ada: 7500000.0
+  sec_44ae: 12000000.0
+
+surcharge_thresholds:
+  - threshold: 20000000.0
+    rate: 0.25
+  - threshold: 10000000.0
+    rate: 0.15
+  - threshold: 5000000.0
+    rate: 0.10
+
+cess_rate: 0.04
