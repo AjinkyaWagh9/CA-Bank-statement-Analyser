@@ -43,34 +43,55 @@ def test_consolidate_pipeline():
             if s not in ["📋 Cover Sheet", "📝 Executive Summary", "💵 Cash Deposit Analysis",
                          "📋 All Transactions"]
         ]
-        
+
+        # Phase 1.1: These four sheets use Excel formula cells instead of static values
+        # and do NOT wrap data in Excel Tables (formula strings break Table coercion).
+        FORMULA_SHEETS = {
+            "🏦 Bank Wise Summary",
+            "📅 Monthly Cashflow",
+            "💰 Income Analysis",
+            "💸 Expense Analysis",
+        }
+
         for sname in standard_tabulars:
             ws = wb[sname]
-            
+            is_formula_sheet = sname in FORMULA_SHEETS
+
             # Row 1 Title Block checking
             assert ws["A1"].value is not None, f"Missing title on {sname}"
             # Check cell fill matches header fill (ends with 1F4E78)
             assert str(ws["A1"].fill.start_color.rgb).endswith("1F4E78"), f"Title color mismatched on {sname}"
-            
+
             # Row 2 Spacer checking
             for col in range(1, ws.max_column + 1):
                 assert ws.cell(row=2, column=col).value is None, f"Spacer cell in row 2 contains data on {sname}"
-                
+
             # Row 3 Headers row checking
             assert ws.cell(row=3, column=1).value is not None, f"Missing header row 3 on {sname}"
             assert str(ws.cell(row=3, column=1).fill.start_color.rgb).endswith("1F4E78")
-            
+
             # Dynamic freeze panes B4 checking
             assert ws.freeze_panes == "B4", f"Incorrect freeze pane on {sname}"
-            
-            # Excel Table checking (displayName and styles)
-            if ws.max_row > 3:
-                assert len(ws.tables) == 1, f"Missing Excel Table on {sname}"
-                tbl = list(ws.tables.values())[0]
-                assert tbl.displayName.startswith("tbl_"), f"Table name '{tbl.displayName}' does not start with tbl_ on {sname}"
+
+            if is_formula_sheet:
+                # Phase 1.1 formula sheets: verify formula cells (start with '=') are present
+                # instead of checking for an Excel Table.
+                formula_found = any(
+                    isinstance(ws.cell(row=r, column=c).value, str) and
+                    ws.cell(row=r, column=c).value.startswith("=")
+                    for r in range(4, ws.max_row + 1)
+                    for c in range(1, ws.max_column + 1)
+                )
+                assert formula_found, f"No formula cells found in formula sheet {sname}"
             else:
-                assert len(ws.tables) == 0, f"Table exists on empty sheet {sname}"
-            
+                # Excel Table checking (displayName and styles) — static-data sheets only
+                if ws.max_row > 3:
+                    assert len(ws.tables) == 1, f"Missing Excel Table on {sname}"
+                    tbl = list(ws.tables.values())[0]
+                    assert tbl.displayName.startswith("tbl_"), f"Table name '{tbl.displayName}' does not start with tbl_ on {sname}"
+                else:
+                    assert len(ws.tables) == 0, f"Table exists on empty sheet {sname}"
+
             # Unique headers check and no Unnamed columns
             seen_headers = set()
             for col_idx in range(1, ws.max_column + 1):
@@ -79,18 +100,21 @@ def test_consolidate_pipeline():
                 assert "Unnamed" not in str(hdr), f"Unnamed header column {col_idx} on {sname}"
                 assert str(hdr) not in seen_headers, f"Duplicate header '{hdr}' on {sname}"
                 seen_headers.add(str(hdr))
-                
+
             # Currency cells formatting verification
+            # For formula sheets, values are formula strings — only check number_format.
             for r in range(4, ws.max_row + 1):
                 for col_idx in range(1, ws.max_column + 1):
                     hdr_val = str(ws.cell(row=3, column=col_idx).value).lower()
                     cell = ws.cell(row=r, column=col_idx)
                     val = cell.value
-                    
+
                     is_curr_col = any(x in hdr_val for x in ["debit", "credit", "balance", "amount", "total", "emi", "inflow", "outflow"])
                     if is_curr_col and val is not None and str(val).strip() != "":
                         assert cell.number_format == "₹#,##0.00", f"Cell {cell.coordinate} on {sname} missing Rupee format"
-                        assert isinstance(val, (int, float)), f"Cell {cell.coordinate} on {sname} is not numeric float"
+                        if not is_formula_sheet:
+                            # Static sheets must have numeric values; formula sheets have '=...' strings
+                            assert isinstance(val, (int, float)), f"Cell {cell.coordinate} on {sname} is not numeric float"
                         
         # 5. Multi-table Cash Deposit sheet verification
         cash_ws = wb["💵 Cash Deposit Analysis"]

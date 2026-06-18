@@ -5,7 +5,8 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.protection import SheetProtection
 from ca_analyzer.presentation.dashboard import create_dashboard_sheet
 from ca_analyzer.presentation.workbook_formatter import populate_and_format_table_sheet, format_custom_table_range
-from ca_analyzer.presentation.styles import HDR_FILL, HDR_FONT, ALT_FILL, BORDER, CENTER
+from ca_analyzer.presentation.styles import HDR_FILL, HDR_FONT, ALT_FILL, BORDER, CENTER, CURRENCY_FORMAT
+from ca_analyzer.presentation import formula_refs
 from ca_analyzer.core.utilities import format_inr
 from ca_analyzer.core.schemas import LOCKED_COLUMNS, UNLOCKED_COLUMNS
 from ca_analyzer.analytics import (
@@ -13,6 +14,69 @@ from ca_analyzer.analytics import (
     generate_high_value_transactions, generate_loan_analysis, generate_gst_analysis,
     generate_tds_analysis, generate_investment_analysis, generate_risk_flags
 )
+
+# ---------------------------------------------------------------------------
+# Canonical category lists (must match category_rules.yaml output exactly)
+# ---------------------------------------------------------------------------
+INCOME_CATEGORIES = [
+    "Salary", "House Property", "Other Sources", "Business/Profession",
+    "Capital Gains", "Loans", "Transfers", "Miscellaneous",
+]
+
+EXPENSE_CATEGORIES = [
+    "Loans", "Insurance", "Taxes", "Investments", "Utilities", "Rent",
+    "Cash", "Bounces", "Food", "Travel", "Shopping", "Medical", "Others",
+]
+
+# ---------------------------------------------------------------------------
+# Shared helper for writing formula-based summary sheets
+# ---------------------------------------------------------------------------
+
+def _write_formula_sheet_title(ws, title_text: str, num_cols: int):
+    """Writes row 1 (merged title) and row 2 (spacer) for a formula sheet."""
+    ws.sheet_view.showGridLines = False
+    last_col = get_column_letter(num_cols)
+    ws.merge_cells(f"A1:{last_col}1")
+    title_cell = ws.cell(row=1, column=1, value=title_text)
+    title_cell.font = Font(name="Calibri", bold=True, size=14, color="FFFFFF")
+    title_cell.fill = HDR_FILL
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 25
+    for col in range(1, num_cols + 1):
+        ws.cell(row=1, column=col).fill = HDR_FILL
+        ws.cell(row=1, column=col).border = BORDER
+
+    ws.row_dimensions[2].height = 15
+    for col in range(1, num_cols + 1):
+        ws.cell(row=2, column=col).border = BORDER
+
+
+def _write_header_row(ws, row: int, headers: list):
+    """Writes styled headers at the given row."""
+    ws.row_dimensions[row].height = 22
+    for col_idx, hdr in enumerate(headers, start=1):
+        cell = ws.cell(row=row, column=col_idx, value=hdr)
+        cell.fill = HDR_FILL
+        cell.font = HDR_FONT
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = BORDER
+
+
+def _style_total_row(ws, row: int, num_cols: int):
+    """Makes the TOTAL row bold with a top border."""
+    for col in range(1, num_cols + 1):
+        cell = ws.cell(row=row, column=col)
+        cell.font = Font(name="Calibri", bold=True)
+        cell.border = BORDER
+
+
+def _apply_currency_format(ws, start_row: int, end_row: int, col_indices: list):
+    """Applies ₹ currency format to a list of column indices (1-based) in a row range."""
+    for row in range(start_row, end_row + 1):
+        for col in col_indices:
+            cell = ws.cell(row=row, column=col)
+            cell.number_format = CURRENCY_FORMAT
+            cell.alignment = Alignment(horizontal="right", vertical="center")
 
 def build_ca_report(df: pd.DataFrame, output_path: str) -> str:
     """
@@ -76,7 +140,11 @@ def build_ca_report(df: pd.DataFrame, output_path: str) -> str:
         create_transaction_sheet(wb, f"📒 {bank} Transactions", bank_df)
 
     # 16. Consolidated All Transactions master sheet (Phase 0 — editable overrides + locked evidence)
-    create_consolidated_master_sheet(wb, df)
+    # Returns col_name_to_idx so named ranges can reference exact column letters.
+    col_name_to_idx = create_consolidated_master_sheet(wb, df)
+
+    # 17. Phase 1.1 — define workbook-level named ranges pointing at master sheet columns
+    formula_refs.define_named_ranges(wb, col_name_to_idx)
 
     wb.save(output_path)
     return output_path
@@ -319,33 +387,314 @@ def create_executive_summary_sheet(wb, df):
     ws.freeze_panes = "B4"
 
 def create_bank_wise_summary_sheet(wb, df):
+    """
+    Phase 1.1 — Formula version of the Bank Wise Summary sheet.
+
+    Credits and transaction counts use SUMIFS/COUNTIFS against the m_Credit / m_Bank
+    named ranges so that CA edits to the master sheet flow through automatically.
+
+    Closing Balance is computed with Python (requires sorting — not feasible as a
+    single SUMIFS formula) and written as a static value with a note.
+    """
     ws = wb.create_sheet("🏦 Bank Wise Summary")
-    summary = []
-    for bank in df["Bank_Name"].unique():
+
+    banks = list(df["Bank_Name"].unique())
+    headers = ["Bank", "Credits", "Debits", "Closing Balance", "Transaction Count"]
+    num_cols = len(headers)
+
+    _write_formula_sheet_title(ws, "🏦 BANK WISE STATEMENT SUMMARY", num_cols)
+    _write_header_row(ws, 3, headers)
+
+    first_data_row = 4
+    for i, bank in enumerate(banks):
+        row = first_data_row + i
+        ws.row_dimensions[row].height = 18
+
+        # Col A: bank label (static)
+        ws.cell(row=row, column=1, value=bank).border = BORDER
+
+        # Col B: Credits via SUMIFS formula
+        cell_b = ws.cell(row=row, column=2, value=f"=SUMIFS(m_Credit,m_Bank,A{row})")
+        cell_b.border = BORDER
+
+        # Col C: Debits via SUMIFS formula
+        cell_c = ws.cell(row=row, column=3, value=f"=SUMIFS(m_Debit,m_Bank,A{row})")
+        cell_c.border = BORDER
+
+        # Col D: Closing Balance — Python-computed (sort required; not expressible as SUMIFS)
         bank_df = df[df["Bank_Name"] == bank].copy()
-        credits = bank_df["Credit"].sum()
-        debits = bank_df["Debit"].sum()
-        last_bal = bank_df.sort_values(by=["Date", "Balance"])["Balance"].iloc[-1] if not bank_df.empty else 0.0
-        count = len(bank_df)
-        summary.append([bank, credits, debits, last_bal, count])
-        
-    summary_df = pd.DataFrame(summary, columns=["Bank", "Credits", "Debits", "Closing Balance", "Transaction Count"])
-    populate_and_format_table_sheet(ws, "🏦 BANK WISE STATEMENT SUMMARY", summary_df)
+        last_bal = (
+            bank_df.sort_values(by=["Date", "Balance"])["Balance"].iloc[-1]
+            if not bank_df.empty else 0.0
+        )
+        cell_d = ws.cell(row=row, column=4, value=last_bal)
+        cell_d.border = BORDER
+
+        # Col E: Transaction Count via COUNTIFS formula
+        cell_e = ws.cell(row=row, column=5, value=f"=COUNTIFS(m_Bank,A{row})")
+        cell_e.border = BORDER
+
+    # TOTAL row
+    last_data_row = first_data_row + len(banks) - 1
+    total_row = last_data_row + 1
+    ws.row_dimensions[total_row].height = 18
+    ws.cell(row=total_row, column=1, value="TOTAL").border = BORDER
+    ws.cell(row=total_row, column=2, value=f"=SUM(B{first_data_row}:B{last_data_row})").border = BORDER
+    ws.cell(row=total_row, column=3, value=f"=SUM(C{first_data_row}:C{last_data_row})").border = BORDER
+    ws.cell(row=total_row, column=4, value=f"=SUM(D{first_data_row}:D{last_data_row})").border = BORDER
+    ws.cell(row=total_row, column=5, value=f"=SUM(E{first_data_row}:E{last_data_row})").border = BORDER
+    _style_total_row(ws, total_row, num_cols)
+
+    # Apply currency format to Credits, Debits, Closing Balance columns (B, C, D = 2, 3, 4)
+    _apply_currency_format(ws, first_data_row, total_row, [2, 3, 4])
+
+    # Column widths
+    ws.column_dimensions["A"].width = 25
+    for col_letter in ["B", "C", "D"]:
+        ws.column_dimensions[col_letter].width = 18
+    ws.column_dimensions["E"].width = 20
+
+    ws.freeze_panes = "B4"
 
 def create_monthly_cashflow_sheet(wb, df):
+    """
+    Phase 1.1 — Formula version of the Monthly Cashflow sheet.
+
+    Each cell uses SUMIFS with DATE/EOMONTH to aggregate credit inflows for the
+    month stored as a 'YYYY-MM' label in column A.  Bank columns come from the
+    m_Credit / m_Bank / m_Date named ranges, so CA edits flow through automatically.
+    """
     ws = wb.create_sheet("📅 Monthly Cashflow")
-    pivot_df = generate_monthly_cashflow_pivot(df)
-    populate_and_format_table_sheet(ws, "📅 MONTHLY CASHFLOW ANALYSIS (CREDIT INFLOWS)", pivot_df)
+
+    # Compute unique months from the dataframe (Python side — labels only)
+    df_copy = df.copy()
+    df_copy["Month"] = df_copy["Date"].dt.strftime("%Y-%m")
+    months = sorted(df_copy["Month"].dropna().unique().tolist())
+
+    banks = list(df["Bank_Name"].unique())
+    headers = ["Month"] + banks + ["Total"]
+    num_cols = len(headers)
+
+    _write_formula_sheet_title(ws, "📅 MONTHLY CASHFLOW ANALYSIS (CREDIT INFLOWS)", num_cols)
+    _write_header_row(ws, 3, headers)
+
+    # Write bank names into header row so mixed-refs B$3 etc. resolve correctly
+    # (already done by _write_header_row above)
+
+    first_data_row = 4
+    last_bank_col = 1 + len(banks)  # 1-based col index of last bank column
+
+    for i, month in enumerate(months):
+        row = first_data_row + i
+        ws.row_dimensions[row].height = 18
+
+        # Col A: month label (static)
+        ws.cell(row=row, column=1, value=month).border = BORDER
+
+        # Bank columns: SUMIFS using DATE/EOMONTH, reading year/month from A{row}
+        for b_idx, _ in enumerate(banks):
+            col = 2 + b_idx  # column B, C, ...
+            formula = (
+                f"=SUMIFS(m_Credit,m_Bank,{get_column_letter(col)}$3,"
+                f"m_Date,\">=\"&DATE(LEFT(A{row},4)*1,MID(A{row},6,2)*1,1),"
+                f"m_Date,\"<=\"&EOMONTH(DATE(LEFT(A{row},4)*1,MID(A{row},6,2)*1,1),0))"
+            )
+            cell = ws.cell(row=row, column=col, value=formula)
+            cell.border = BORDER
+
+        # Total column (last col): SUM across bank columns in this row
+        total_col = 1 + len(banks) + 1
+        first_bank_letter = get_column_letter(2)
+        last_bank_letter = get_column_letter(last_bank_col)
+        total_cell = ws.cell(
+            row=row, column=total_col,
+            value=f"=SUM({first_bank_letter}{row}:{last_bank_letter}{row})"
+        )
+        total_cell.border = BORDER
+
+    # TOTAL row
+    last_data_row = first_data_row + len(months) - 1
+    total_row = last_data_row + 1
+    ws.row_dimensions[total_row].height = 18
+    ws.cell(row=total_row, column=1, value="TOTAL").border = BORDER
+
+    for b_idx in range(len(banks)):
+        col = 2 + b_idx
+        col_letter = get_column_letter(col)
+        ws.cell(
+            row=total_row, column=col,
+            value=f"=SUM({col_letter}{first_data_row}:{col_letter}{last_data_row})"
+        ).border = BORDER
+
+    total_col = 1 + len(banks) + 1
+    total_col_letter = get_column_letter(total_col)
+    ws.cell(
+        row=total_row, column=total_col,
+        value=f"=SUM({total_col_letter}{first_data_row}:{total_col_letter}{last_data_row})"
+    ).border = BORDER
+    _style_total_row(ws, total_row, num_cols)
+
+    # Currency format for all numeric columns (2 through num_cols)
+    _apply_currency_format(ws, first_data_row, total_row, list(range(2, num_cols + 1)))
+
+    # Column widths
+    ws.column_dimensions["A"].width = 14
+    for col in range(2, num_cols + 1):
+        ws.column_dimensions[get_column_letter(col)].width = 18
+
+    ws.freeze_panes = "B4"
 
 def create_income_analysis_sheet(wb, df):
+    """
+    Phase 1.1 — Formula version of the Income Analysis sheet.
+
+    Category × Bank matrix where each cell uses:
+      =SUMIFS(m_Credit, m_CatFinal, $A{row}, m_Bank, {BankCol}$3)
+    so that CA overrides in Category_Final flow through automatically.
+    """
     ws = wb.create_sheet("💰 Income Analysis")
-    income_df = generate_income_analysis(df)
-    populate_and_format_table_sheet(ws, "💰 INCOME SOURCE ANALYSIS BY ACCOUNT", income_df)
+
+    banks = list(df["Bank_Name"].unique())
+    categories = INCOME_CATEGORIES
+    headers = ["Category"] + banks + ["Total"]
+    num_cols = len(headers)
+
+    _write_formula_sheet_title(ws, "💰 INCOME SOURCE ANALYSIS BY ACCOUNT", num_cols)
+    _write_header_row(ws, 3, headers)
+
+    first_data_row = 4
+    last_bank_col = 1 + len(banks)  # 1-based col index of the last bank column
+
+    for i, cat in enumerate(categories):
+        row = first_data_row + i
+        ws.row_dimensions[row].height = 18
+
+        # Col A: category label (static, anchored with $ for mixed-ref formulas)
+        ws.cell(row=row, column=1, value=cat).border = BORDER
+
+        # Bank columns: SUMIFS matching Category_Final ($A{row}) and Bank (header row 3)
+        for b_idx in range(len(banks)):
+            col = 2 + b_idx
+            col_letter = get_column_letter(col)
+            formula = f"=SUMIFS(m_Credit,m_CatFinal,$A{row},m_Bank,{col_letter}$3)"
+            ws.cell(row=row, column=col, value=formula).border = BORDER
+
+        # Total column: SUM across bank columns
+        total_col = last_bank_col + 1
+        first_bank_letter = get_column_letter(2)
+        last_bank_letter = get_column_letter(last_bank_col)
+        ws.cell(
+            row=row, column=total_col,
+            value=f"=SUM({first_bank_letter}{row}:{last_bank_letter}{row})"
+        ).border = BORDER
+
+    # TOTAL row
+    last_data_row = first_data_row + len(categories) - 1
+    total_row = last_data_row + 1
+    ws.row_dimensions[total_row].height = 18
+    ws.cell(row=total_row, column=1, value="TOTAL").border = BORDER
+
+    for b_idx in range(len(banks)):
+        col = 2 + b_idx
+        col_letter = get_column_letter(col)
+        ws.cell(
+            row=total_row, column=col,
+            value=f"=SUM({col_letter}{first_data_row}:{col_letter}{last_data_row})"
+        ).border = BORDER
+
+    total_col = last_bank_col + 1
+    total_col_letter = get_column_letter(total_col)
+    ws.cell(
+        row=total_row, column=total_col,
+        value=f"=SUM({total_col_letter}{first_data_row}:{total_col_letter}{last_data_row})"
+    ).border = BORDER
+    _style_total_row(ws, total_row, num_cols)
+
+    # Currency format for all numeric columns
+    _apply_currency_format(ws, first_data_row, total_row, list(range(2, num_cols + 1)))
+
+    # Column widths
+    ws.column_dimensions["A"].width = 25
+    for col in range(2, num_cols + 1):
+        ws.column_dimensions[get_column_letter(col)].width = 18
+
+    ws.freeze_panes = "B4"
 
 def create_expense_analysis_sheet(wb, df):
+    """
+    Phase 1.1 — Formula version of the Expense Analysis sheet.
+
+    Category × Bank matrix (debit side) where each cell uses:
+      =SUMIFS(m_Debit, m_CatFinal, $A{row}, m_Bank, {BankCol}$3)
+    so that CA overrides in Category_Final flow through automatically.
+    """
     ws = wb.create_sheet("💸 Expense Analysis")
-    exp_df = generate_expense_analysis(df)
-    populate_and_format_table_sheet(ws, "💸 EXPENSE DISTRIBUTION BY ACCOUNT", exp_df)
+
+    banks = list(df["Bank_Name"].unique())
+    categories = EXPENSE_CATEGORIES
+    headers = ["Category"] + banks + ["Total"]
+    num_cols = len(headers)
+
+    _write_formula_sheet_title(ws, "💸 EXPENSE DISTRIBUTION BY ACCOUNT", num_cols)
+    _write_header_row(ws, 3, headers)
+
+    first_data_row = 4
+    last_bank_col = 1 + len(banks)
+
+    for i, cat in enumerate(categories):
+        row = first_data_row + i
+        ws.row_dimensions[row].height = 18
+
+        # Col A: category label (static)
+        ws.cell(row=row, column=1, value=cat).border = BORDER
+
+        # Bank columns: SUMIFS on debit side matching Category_Final and Bank
+        for b_idx in range(len(banks)):
+            col = 2 + b_idx
+            col_letter = get_column_letter(col)
+            formula = f"=SUMIFS(m_Debit,m_CatFinal,$A{row},m_Bank,{col_letter}$3)"
+            ws.cell(row=row, column=col, value=formula).border = BORDER
+
+        # Total column: SUM across bank columns
+        total_col = last_bank_col + 1
+        first_bank_letter = get_column_letter(2)
+        last_bank_letter = get_column_letter(last_bank_col)
+        ws.cell(
+            row=row, column=total_col,
+            value=f"=SUM({first_bank_letter}{row}:{last_bank_letter}{row})"
+        ).border = BORDER
+
+    # TOTAL row
+    last_data_row = first_data_row + len(categories) - 1
+    total_row = last_data_row + 1
+    ws.row_dimensions[total_row].height = 18
+    ws.cell(row=total_row, column=1, value="TOTAL").border = BORDER
+
+    for b_idx in range(len(banks)):
+        col = 2 + b_idx
+        col_letter = get_column_letter(col)
+        ws.cell(
+            row=total_row, column=col,
+            value=f"=SUM({col_letter}{first_data_row}:{col_letter}{last_data_row})"
+        ).border = BORDER
+
+    total_col = last_bank_col + 1
+    total_col_letter = get_column_letter(total_col)
+    ws.cell(
+        row=total_row, column=total_col,
+        value=f"=SUM({total_col_letter}{first_data_row}:{total_col_letter}{last_data_row})"
+    ).border = BORDER
+    _style_total_row(ws, total_row, num_cols)
+
+    # Currency format for all numeric columns
+    _apply_currency_format(ws, first_data_row, total_row, list(range(2, num_cols + 1)))
+
+    # Column widths
+    ws.column_dimensions["A"].width = 25
+    for col in range(2, num_cols + 1):
+        ws.column_dimensions[get_column_letter(col)].width = 18
+
+    ws.freeze_panes = "B4"
 
 def create_cash_deposit_sheet(wb, df):
     ws = wb.create_sheet("💵 Cash Deposit Analysis")
@@ -572,3 +921,6 @@ def create_consolidated_master_sheet(wb, df: pd.DataFrame):
     ws.protection.enable()
 
     # Freeze pane stays at B4 (set by populate_and_format_table_sheet)
+
+    # Phase 1.1 — return mapping so build_ca_report can define named ranges
+    return col_name_to_idx
