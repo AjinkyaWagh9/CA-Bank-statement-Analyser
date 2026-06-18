@@ -23,15 +23,20 @@ Gap-closing plan from the current working `ca_analyzer` pipeline to the BRD targ
 
 ---
 
-## Phase 0 — Foundation (traceability + confidence + safe master sheet)
-- [ ] 0.1 Extend `CANONICAL_COLUMNS` + all parsers: add `Transaction_ID` (deterministic hash),
-      `Statement_File_Name`, `Sheet_Name`, `Statement_Row_No`, `Financial_Year`. *(haiku)*
-- [ ] 0.2 Add `Confidence` (High/Medium/Low) + `Match_Reason` columns; populate from match
-      strength in `category_engine`. *(sonnet)*
-- [ ] 0.3 Add editable override columns to the Consolidated master sheet: `Category_Final`,
-      `Sub_Category_Final`, `GST_Flag`, `Loan_Flag`, `Tax_Flag`, `CG_Flag`, `Confidence`,
-      `Remarks`. `*_Final` default to the engine's guess so the CA only edits exceptions. *(sonnet)*
-- [ ] 0.4 Lock non-editable columns (Date/Narration/amounts/Bank) via sheet protection. *(haiku)*
+## Phase 0 — Foundation (traceability + confidence + safe master sheet) — DONE (commit 970a19d)
+- [x] 0.1 Extended `CANONICAL_COLUMNS` (now 32 cols) + parsers: `Transaction_ID` (sha1 hash),
+      `Statement_File_Name`, `Sheet_Name`, `Statement_Row_No`, `Financial_Year`.
+- [x] 0.2 `Confidence` (High/Medium/Low) + `Match_Reason` from match strength.
+- [x] 0.3 Editable override columns on Consolidated master sheet (`Category_Final`,
+      `Sub_Category_Final`, `GST/Loan/Tax/CG_Flag`, `Remarks`); `*_Final` default to engine guess.
+- [x] 0.4 Non-editable evidence columns locked via openpyxl sheet protection.
+- [x] (side) Fixed ICICI S.No column index bug.
+
+## Phase 0.5 — Parser hardening — DONE (commit 3edbce3)
+- [x] Root-caused transaction row loss: `is_header_row()` scanned the new `Statement_File_Name`
+      column ("BANK") and dropped any txn whose narration held CREDIT/DEBIT/BANK as a fake header.
+      Restricted scan to the 6 raw txn columns. Counts: HDFC 740→799, ICICI 39→163, SBI 23.
+      Reconciliation warnings 76→0 across all banks. Numbers now trustworthy for Phase 1.
 
 ## Phase 1 — Dynamic formula workbook (hardest core piece)
 - [ ] 1.1 Rewrite `report_builder` summary sheets (Summary, Income, Expense, Cash Flow, Tax,
