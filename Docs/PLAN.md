@@ -76,13 +76,14 @@ Gap-closing plan from the current working `ca_analyzer` pipeline to the BRD targ
 ## Phase 3 — LLM-assisted extraction & classification
 - [ ] 3.1 PDF bank parser: `pdfplumber`/`camelot` for digital PDFs → standardizer. *(sonnet)*
       BLOCKED: need a sample PDF bank statement to build/verify against.
-- [x] 3.2 LLM fallback classifier (`transaction_engine/llm_classifier.py`, commit 8b62b58):
-      refines Others/Misc/Low-confidence rows via Claude; chunked structured output +
-      prompt-cached taxonomy; allowed-taxonomy guard. Provider-pluggable Bedrock/first-party,
-      default Haiku 4.5. Triple-gated (llm.enabled flag default OFF + SDK + creds) → no-op until
-      enabled; deterministic-only mode preserved. Mock-tested only (71 pass).
-      TO RUN: `pip install 'anthropic[bedrock]'`, set `llm.enabled: true`, export AWS creds + AWS_REGION.
-      NOT YET validated against the live Bedrock API (no creds in env).
+- [x] 3.2 LLM fallback classifier (`transaction_engine/llm_classifier.py`, commit efa4030):
+      refines Others/Misc/Low-confidence rows via **OpenAI GPT-4o** (default gpt-4o-mini);
+      chunked structured output (`chat.completions.parse` + Pydantic); allowed-taxonomy guard.
+      Triple-gated (llm.enabled flag default OFF + openai SDK + OPENAI_API_KEY) → no-op until
+      enabled; deterministic-only mode preserved. Mock-tested only (70 pass).
+      (Was briefly on Bedrock; user switched to OpenAI — Bedrock code removed.)
+      TO RUN: `pip install openai`, `export OPENAI_API_KEY=sk-...`, set `llm.enabled: true`.
+      NOT YET validated against the live OpenAI API (no key in env).
 - [ ] 3.3 LLM extraction for 26AS / AIS / TIS / broker statements → normalized evidence tables. *(sonnet)*
 - [ ] 3.4 Capital-gain reconciliation against extracted broker data. *(sonnet)*
 
