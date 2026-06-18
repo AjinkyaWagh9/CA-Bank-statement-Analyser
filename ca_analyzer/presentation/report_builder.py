@@ -15,6 +15,7 @@ from ca_analyzer.analytics import (
     generate_tds_analysis, generate_investment_analysis, generate_risk_flags
 )
 from ca_analyzer.validation.reconciliation import reconcile_all
+from ca_analyzer.transaction_engine.loan_matcher import build_loan_ledger
 
 # ---------------------------------------------------------------------------
 # Canonical category lists (must match category_rules.yaml output exactly)
@@ -156,7 +157,19 @@ def build_ca_report(df: pd.DataFrame, output_path: str) -> str:
     # 21. CA Observations
     create_ca_observations_sheet(wb, df, reconciliation_discrepancies)
 
-    # 22+. Bank-wise transaction ledgers
+    # 22. 🔁 Inter-Bank Transfers sheet
+    create_inter_bank_transfers_sheet(wb, df)
+
+    # 23. 🏦 Loan Ledger sheet
+    create_loan_ledger_sheet(wb, df)
+
+    # 24. 📉 EMI Analysis sheet
+    create_emi_analysis_sheet(wb, df)
+
+    # 25. 👥 Related Party sheet
+    create_related_party_sheet(wb, df)
+
+    # 26+. Bank-wise transaction ledgers
     for bank in sorted(df["Bank_Name"].unique()):
         bank_df = df[df["Bank_Name"] == bank].copy()
         create_transaction_sheet(wb, f"📒 {bank} Transactions", bank_df)
@@ -1311,6 +1324,264 @@ def create_ca_observations_sheet(wb, df, reconciliation_discrepancies: list):
     ws.freeze_panes = "B4"
 
 
+def create_inter_bank_transfers_sheet(wb, df):
+    """🔁 Inter-Bank Transfers sheet — rows where Transfer_Group != ''."""
+    ws = wb.create_sheet("🔁 Inter-Bank Transfers")
+    ws.sheet_view.showGridLines = False
+
+    # Filter to IBT rows
+    if "Transfer_Group" in df.columns:
+        ibt_df = df[df["Transfer_Group"] != ""].copy()
+    else:
+        ibt_df = pd.DataFrame()
+
+    display_cols = ["Transfer_Group", "Date", "Bank_Name", "Account_Number", "Narration", "Debit", "Credit"]
+    display_cols = [c for c in display_cols if c in df.columns]
+
+    if not ibt_df.empty:
+        ibt_df = ibt_df.sort_values("Transfer_Group")
+        sub_df = ibt_df[display_cols].copy()
+    else:
+        sub_df = pd.DataFrame(columns=display_cols)
+
+    count = len(sub_df)
+    num_cols = len(display_cols)
+    last_col_letter = get_column_letter(num_cols) if num_cols > 0 else "A"
+
+    # Row 1: Title
+    ws.merge_cells(f"A1:{last_col_letter}1")
+    title_cell = ws.cell(row=1, column=1, value="🔁 INTER-BANK TRANSFERS")
+    title_cell.font = Font(name="Calibri", bold=True, size=14, color="FFFFFF")
+    title_cell.fill = HDR_FILL
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 25
+    for col in range(1, num_cols + 1):
+        ws.cell(row=1, column=col).fill = HDR_FILL
+        ws.cell(row=1, column=col).border = BORDER
+
+    # Row 2: Count summary
+    ws.merge_cells(f"A2:{last_col_letter}2")
+    summary_cell = ws.cell(row=2, column=1, value=f"Total inter-bank transfer legs: {count}")
+    summary_cell.font = Font(name="Calibri", bold=True, size=11)
+    summary_cell.alignment = Alignment(horizontal="left", vertical="center")
+    summary_cell.border = BORDER
+    ws.row_dimensions[2].height = 20
+    for col in range(2, num_cols + 1):
+        ws.cell(row=2, column=col).border = BORDER
+
+    # Row 3: Headers
+    _write_header_row(ws, 3, display_cols)
+
+    # Row 4+: Data
+    for r_idx, (_, row) in enumerate(sub_df.iterrows(), start=4):
+        ws.row_dimensions[r_idx].height = 18
+        for c_idx, col_name in enumerate(display_cols, start=1):
+            val = row[col_name]
+            if pd.isna(val):
+                val = None
+            cell = ws.cell(row=r_idx, column=c_idx, value=val)
+            cell.border = BORDER
+            if r_idx % 2 == 0:
+                cell.fill = ALT_FILL
+
+    if count == 0:
+        ws.merge_cells(f"A4:{last_col_letter}4")
+        empty_cell = ws.cell(row=4, column=1, value="No inter-bank transfers detected.")
+        empty_cell.font = Font(name="Calibri", italic=True, color="7F7F7F")
+        empty_cell.border = BORDER
+
+    # Currency format for Debit and Credit
+    if count > 0:
+        debit_col = display_cols.index("Debit") + 1 if "Debit" in display_cols else None
+        credit_col = display_cols.index("Credit") + 1 if "Credit" in display_cols else None
+        currency_cols = [c for c in [debit_col, credit_col] if c is not None]
+        if currency_cols:
+            _apply_currency_format(ws, 4, 3 + count, currency_cols)
+
+    # Column widths
+    col_widths = {"Transfer_Group": 14, "Date": 14, "Bank_Name": 16,
+                  "Account_Number": 18, "Narration": 35, "Debit": 16, "Credit": 16}
+    for c_idx, col_name in enumerate(display_cols, start=1):
+        ws.column_dimensions[get_column_letter(c_idx)].width = col_widths.get(col_name, 15)
+
+    ws.freeze_panes = "B4"
+
+
+def create_loan_ledger_sheet(wb, df):
+    """🏦 Loan Ledger sheet — output of build_loan_ledger."""
+    ws = wb.create_sheet("🏦 Loan Ledger")
+    ledger_df = build_loan_ledger(df)
+    populate_and_format_table_sheet(ws, "🏦 LOAN LEDGER SUMMARY", ledger_df)
+
+
+def create_emi_analysis_sheet(wb, df):
+    """📉 EMI Analysis sheet — rows where Loan_Role in {'EMI', 'Repayment'}."""
+    ws = wb.create_sheet("📉 EMI Analysis")
+    ws.sheet_view.showGridLines = False
+
+    if "Loan_Role" in df.columns:
+        emi_df = df[df["Loan_Role"].isin({"EMI", "Repayment"})].copy()
+    else:
+        emi_df = pd.DataFrame()
+
+    display_cols = ["Date", "Bank_Name", "Counterparty", "Narration", "Debit", "Loan_ID", "Loan_Status"]
+    display_cols = [c for c in display_cols if c in df.columns]
+
+    if not emi_df.empty:
+        sub_df = emi_df[display_cols].copy()
+    else:
+        sub_df = pd.DataFrame(columns=display_cols)
+
+    count = len(sub_df)
+    num_cols = len(display_cols)
+    last_col_letter = get_column_letter(num_cols) if num_cols > 0 else "A"
+
+    # Row 1: Title
+    ws.merge_cells(f"A1:{last_col_letter}1")
+    title_cell = ws.cell(row=1, column=1, value="📉 EMI & LOAN REPAYMENT ANALYSIS")
+    title_cell.font = Font(name="Calibri", bold=True, size=14, color="FFFFFF")
+    title_cell.fill = HDR_FILL
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 25
+    for col in range(1, num_cols + 1):
+        ws.cell(row=1, column=col).fill = HDR_FILL
+        ws.cell(row=1, column=col).border = BORDER
+
+    # Row 2: Count summary
+    ws.merge_cells(f"A2:{last_col_letter}2")
+    total_emi = sub_df["Debit"].sum() if "Debit" in sub_df.columns and count > 0 else 0.0
+    summary_cell = ws.cell(row=2, column=1,
+        value=f"EMI/Repayment rows: {count} | Total outflow: ₹{total_emi:,.2f}")
+    summary_cell.font = Font(name="Calibri", bold=True, size=11)
+    summary_cell.alignment = Alignment(horizontal="left", vertical="center")
+    summary_cell.border = BORDER
+    ws.row_dimensions[2].height = 20
+    for col in range(2, num_cols + 1):
+        ws.cell(row=2, column=col).border = BORDER
+
+    # Row 3: Headers
+    _write_header_row(ws, 3, display_cols)
+
+    # Row 4+: Data
+    for r_idx, (_, row) in enumerate(sub_df.iterrows(), start=4):
+        ws.row_dimensions[r_idx].height = 18
+        for c_idx, col_name in enumerate(display_cols, start=1):
+            val = row[col_name]
+            if pd.isna(val):
+                val = None
+            cell = ws.cell(row=r_idx, column=c_idx, value=val)
+            cell.border = BORDER
+            if r_idx % 2 == 0:
+                cell.fill = ALT_FILL
+
+    if count == 0:
+        ws.merge_cells(f"A4:{last_col_letter}4")
+        empty_cell = ws.cell(row=4, column=1, value="No EMI / loan repayment rows detected.")
+        empty_cell.font = Font(name="Calibri", italic=True, color="7F7F7F")
+        empty_cell.border = BORDER
+
+    # Currency format for Debit column
+    if count > 0 and "Debit" in display_cols:
+        debit_col = display_cols.index("Debit") + 1
+        _apply_currency_format(ws, 4, 3 + count, [debit_col])
+
+    col_widths = {"Date": 14, "Bank_Name": 16, "Counterparty": 20,
+                  "Narration": 35, "Debit": 16, "Loan_ID": 12, "Loan_Status": 16}
+    for c_idx, col_name in enumerate(display_cols, start=1):
+        ws.column_dimensions[get_column_letter(c_idx)].width = col_widths.get(col_name, 15)
+
+    ws.freeze_panes = "B4"
+
+
+def create_related_party_sheet(wb, df):
+    """👥 Related Party sheet — counterparties appearing on both credit and debit, or Loan_Role in Receipt/Repayment."""
+    ws = wb.create_sheet("👥 Related Party")
+    ws.sheet_view.showGridLines = False
+
+    display_cols = ["Counterparty", "Date", "Narration", "Debit", "Credit", "Loan_ID"]
+    display_cols = [c for c in display_cols if c in df.columns]
+
+    # Build related party mask
+    rp_df = pd.DataFrame()
+    if not df.empty:
+        # Condition 1: Counterparty appears on both a credit and a debit
+        cp_with_credit = set(df[df["Credit"] > 0]["Counterparty"].dropna().unique())
+        cp_with_debit = set(df[df["Debit"] > 0]["Counterparty"].dropna().unique())
+        both_sides = cp_with_credit & cp_with_debit
+        # Remove blank/generic counterparties
+        both_sides = {cp for cp in both_sides if cp.strip() not in ("", "N/A", "OTHERS")}
+        mask_both = df["Counterparty"].isin(both_sides)
+
+        # Condition 2: Loan_Role in Receipt or Repayment
+        if "Loan_Role" in df.columns:
+            mask_loan = df["Loan_Role"].isin({"Receipt", "Repayment"})
+        else:
+            mask_loan = pd.Series(False, index=df.index)
+
+        rp_df = df[mask_both | mask_loan][display_cols].copy()
+
+    count = len(rp_df)
+    num_cols = len(display_cols)
+    last_col_letter = get_column_letter(num_cols) if num_cols > 0 else "A"
+
+    # Row 1: Title
+    ws.merge_cells(f"A1:{last_col_letter}1")
+    title_cell = ws.cell(row=1, column=1, value="👥 RELATED PARTY TRANSACTIONS")
+    title_cell.font = Font(name="Calibri", bold=True, size=14, color="FFFFFF")
+    title_cell.fill = HDR_FILL
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 25
+    for col in range(1, num_cols + 1):
+        ws.cell(row=1, column=col).fill = HDR_FILL
+        ws.cell(row=1, column=col).border = BORDER
+
+    # Row 2: Count summary
+    ws.merge_cells(f"A2:{last_col_letter}2")
+    summary_cell = ws.cell(row=2, column=1, value=f"Related party rows: {count}")
+    summary_cell.font = Font(name="Calibri", bold=True, size=11)
+    summary_cell.alignment = Alignment(horizontal="left", vertical="center")
+    summary_cell.border = BORDER
+    ws.row_dimensions[2].height = 20
+    for col in range(2, num_cols + 1):
+        ws.cell(row=2, column=col).border = BORDER
+
+    # Row 3: Headers
+    _write_header_row(ws, 3, display_cols)
+
+    # Row 4+: Data
+    for r_idx, (_, row) in enumerate(rp_df.iterrows(), start=4):
+        ws.row_dimensions[r_idx].height = 18
+        for c_idx, col_name in enumerate(display_cols, start=1):
+            val = row[col_name]
+            if pd.isna(val):
+                val = None
+            cell = ws.cell(row=r_idx, column=c_idx, value=val)
+            cell.border = BORDER
+            if r_idx % 2 == 0:
+                cell.fill = ALT_FILL
+
+    if count == 0:
+        ws.merge_cells(f"A4:{last_col_letter}4")
+        empty_cell = ws.cell(row=4, column=1, value="No related party transactions detected.")
+        empty_cell.font = Font(name="Calibri", italic=True, color="7F7F7F")
+        empty_cell.border = BORDER
+
+    # Currency format for Debit and Credit
+    if count > 0:
+        debit_col = display_cols.index("Debit") + 1 if "Debit" in display_cols else None
+        credit_col = display_cols.index("Credit") + 1 if "Credit" in display_cols else None
+        currency_cols = [c for c in [debit_col, credit_col] if c is not None]
+        if currency_cols:
+            _apply_currency_format(ws, 4, 3 + count, currency_cols)
+
+    col_widths = {"Counterparty": 22, "Date": 14, "Narration": 35,
+                  "Debit": 16, "Credit": 16, "Loan_ID": 12}
+    for c_idx, col_name in enumerate(display_cols, start=1):
+        ws.column_dimensions[get_column_letter(c_idx)].width = col_widths.get(col_name, 15)
+
+    ws.freeze_panes = "B4"
+
+
 def create_transaction_sheet(wb, sheet_name, df_bank):
     """Creates a standardized bank-specific transaction ledger sheet."""
     ws = wb.create_sheet(sheet_name)
@@ -1361,6 +1632,11 @@ def create_consolidated_master_sheet(wb, df: pd.DataFrame):
         # Engine outputs (locked — source of truth, CAs edit *_Final copies)
         "Category",
         "Sub_Category",
+        # Transaction engine tags (locked — evidence)
+        "Transfer_Group",
+        "Loan_ID",
+        "Loan_Role",
+        "Loan_Status",
         # Editable overrides (unlocked)
         "Category_Final",
         "Sub_Category_Final",

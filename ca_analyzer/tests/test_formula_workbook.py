@@ -47,6 +47,7 @@ def make_test_df() -> pd.DataFrame:
             "Person_Name": "Test Client",
             "Statement_Start": "2024-04-01", "Statement_End": "2024-05-31",
             "txn_seq": 1,
+            "Transfer_Group": "", "Loan_ID": "", "Loan_Role": "", "Loan_Status": "",
         },
         # HDFC — April 2024 — Expense (Rent)
         {
@@ -65,6 +66,7 @@ def make_test_df() -> pd.DataFrame:
             "Person_Name": "Test Client",
             "Statement_Start": "2024-04-01", "Statement_End": "2024-05-31",
             "txn_seq": 2,
+            "Transfer_Group": "", "Loan_ID": "", "Loan_Role": "", "Loan_Status": "",
         },
         # HDFC — May 2024 — Salary (second month)
         {
@@ -83,6 +85,7 @@ def make_test_df() -> pd.DataFrame:
             "Person_Name": "Test Client",
             "Statement_Start": "2024-04-01", "Statement_End": "2024-05-31",
             "txn_seq": 3,
+            "Transfer_Group": "", "Loan_ID": "", "Loan_Role": "", "Loan_Status": "",
         },
         # Bank: ICICI — April 2024 — Other Sources
         {
@@ -101,6 +104,7 @@ def make_test_df() -> pd.DataFrame:
             "Person_Name": "Test Client",
             "Statement_Start": "2024-04-01", "Statement_End": "2024-05-31",
             "txn_seq": 4,
+            "Transfer_Group": "", "Loan_ID": "", "Loan_Role": "", "Loan_Status": "",
         },
         # ICICI — May 2024 — Food expense
         {
@@ -119,6 +123,7 @@ def make_test_df() -> pd.DataFrame:
             "Person_Name": "Test Client",
             "Statement_Start": "2024-04-01", "Statement_End": "2024-05-31",
             "txn_seq": 5,
+            "Transfer_Group": "", "Loan_ID": "", "Loan_Role": "", "Loan_Status": "",
         },
         # ICICI — May 2024 — Unclassified row (Others + Low confidence)
         {
@@ -137,6 +142,7 @@ def make_test_df() -> pd.DataFrame:
             "Person_Name": "Test Client",
             "Statement_Start": "2024-04-01", "Statement_End": "2024-05-31",
             "txn_seq": 6,
+            "Transfer_Group": "", "Loan_ID": "", "Loan_Role": "", "Loan_Status": "",
         },
     ]
     return pd.DataFrame(rows)
@@ -317,7 +323,8 @@ def test_master_sheet_has_correct_headers(workbook_path):
     wb = openpyxl.load_workbook(workbook_path)
     ws = wb["📋 All Transactions"]
     headers = [ws.cell(row=3, column=c).value for c in range(1, ws.max_column + 1)]
-    for expected in ["Bank_Name", "Credit", "Debit", "Category_Final", "GST_Flag"]:
+    for expected in ["Bank_Name", "Credit", "Debit", "Category_Final", "GST_Flag",
+                     "Transfer_Group", "Loan_ID", "Loan_Role", "Loan_Status"]:
         assert expected in headers, f"Expected header '{expected}' missing from master sheet"
 
 
@@ -382,7 +389,7 @@ def compute_pandas_oracle_phase12(df: pd.DataFrame) -> dict:
 # ---------------------------------------------------------------------------
 
 def test_new_sheets_exist(workbook_path):
-    """All 6 new Phase 1.2 sheets must exist in the workbook."""
+    """All Phase 1.2 + engine sheets must exist in the workbook."""
     wb = openpyxl.load_workbook(workbook_path)
     new_sheets = [
         "🧾 Tax Payments",
@@ -391,6 +398,10 @@ def test_new_sheets_exist(workbook_path):
         "🏧 Drawings",
         "❓ Unclassified Transactions",
         "📌 CA Observations",
+        "🔁 Inter-Bank Transfers",
+        "🏦 Loan Ledger",
+        "📉 EMI Analysis",
+        "👥 Related Party",
     ]
     missing = [s for s in new_sheets if s not in wb.sheetnames]
     assert not missing, f"Missing new sheets: {missing}"

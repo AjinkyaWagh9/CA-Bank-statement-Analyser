@@ -1,10 +1,12 @@
 credit_categories:
   Salary:
-    Salary Income: ["salary", "sal ", "sal/", "payroll", "ctc", "emolument", "wages", "stipend", "remuneration", "hrd", "hr dept"]
+    Salary Income: ["salary", "sal ", "sal/", "payroll", "ctc", "emolument", "wages", "stipend", "remuneration", "hrd", "hr dept", "PAYROLL", "SAL", "BONUS", "PENSION"]
     Bonus Income: ["bonus"]
     Pension Income: ["pension"]
   House Property:
-    Rental Income: ["rent", "rental income", "house rent", "tenancy"]
+    Rental Income: ["rent", "rental income", "house rent", "tenancy", "RENT", "RENTAL", "LEASE", "HOUSE RENT"]
+  Loans:
+    Loan Received: ["loan", "loan disbursement", "loan credit", "od limit", "cc limit", "personal loan", "home loan cr", "education loan", "LOAN", "DISB", "PL", "HL", "LAP", "FINANCE", "NBFC"]
   Other Sources:
     Interest Income: ["interest", "int cr", "int credit", "fd int", "rd int", "savings int", "int on fd", "int on rd", "interest earned", "int income", "savings interest"]
     Dividend Income: ["dividend", "div cr", "div credit", "idcw"]
@@ -14,8 +16,6 @@ credit_categories:
     Professional Fees: ["professional fees", "consulting", "consultancy", "retainer", "advisory", "audit fees", "legal fees"]
   Capital Gains:
     Capital Market Inflow: ["redemption", "mutual fund", "mf units", "demat", "nsdl", "cdsl", "stocks", "shares", "equity", "brokerage receipt", "buyback"]
-  Loans:
-    Loan Received: ["loan disbursement", "loan credit", "od limit", "cc limit", "personal loan", "home loan cr", "education loan"]
   Transfers:
     Transfer In: ["neft", "rtgs", "imps", "transfer", "trf", "fund transfer", "received from"]
 
@@ -36,7 +36,7 @@ debit_categories:
   Cash:
     Cash Withdrawal: ["atm", "atm/cash", "cash withdrawal", "cash wd", "atm wd", "cash debit"]
   Bounces:
-    Cheque Bounce: ["bounce", "dishonour", "returned", "insufficient", "inward bounce", "ecs bounce", "nach return", "mandate return"]
+    Cheque Bounce: ["bounce", "dishonour", "returned", "insufficient", "inward bounce", "ecs bounce", "nach return", "mandate return", "CHQ RETURN", "CHEQUE RETURN", "RETURN CHARGES", "ECS RETURN"]
   Food:
     Food Expense: ["swiggy", "zomato", "restaurant", "hotel", "cafe", "food", "eats"]
   Travel:

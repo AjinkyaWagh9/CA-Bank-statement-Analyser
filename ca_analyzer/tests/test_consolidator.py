@@ -35,6 +35,7 @@ def test_consolidate_pipeline():
             "⚠️ Risk Flags",
             "🧾 Tax Payments", "💼 80C Deduction Tracker", "📈 Capital Gain",
             "🏧 Drawings", "❓ Unclassified Transactions", "📌 CA Observations",
+            "🔁 Inter-Bank Transfers", "🏦 Loan Ledger", "📉 EMI Analysis", "👥 Related Party",
             "📒 HDFC Transactions", "📒 ICICI Transactions", "📒 SBI Transactions",
             "📋 All Transactions",
         ]
@@ -46,6 +47,8 @@ def test_consolidate_pipeline():
         PHASE12_CUSTOM_SHEETS = {
             "🧾 Tax Payments", "💼 80C Deduction Tracker", "📈 Capital Gain",
             "🏧 Drawings", "❓ Unclassified Transactions", "📌 CA Observations",
+            # Engine sheets use custom layouts (title + count row + headers + data)
+            "🔁 Inter-Bank Transfers", "🏦 Loan Ledger", "📉 EMI Analysis", "👥 Related Party",
         }
         standard_tabulars = [
             s for s in expected_sheets
@@ -144,7 +147,8 @@ def test_consolidate_pipeline():
         all_headers = {all_ws.cell(row=3, column=c).value for c in range(1, all_ws.max_column + 1)}
         for expected_col in ["Transaction_ID", "Financial_Year", "Statement_File_Name",
                               "Sheet_Name", "Statement_Row_No", "Confidence", "Match_Reason",
-                              "Category_Final", "Sub_Category_Final", "GST_Flag", "Remarks"]:
+                              "Category_Final", "Sub_Category_Final", "GST_Flag", "Remarks",
+                              "Transfer_Group", "Loan_ID", "Loan_Role", "Loan_Status"]:
             assert expected_col in all_headers, f"Missing column '{expected_col}' in All Transactions sheet"
 
         # Clean up test output

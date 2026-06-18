@@ -20,3 +20,20 @@ def test_confidence_levels():
     cat, subcat, conf, reason = categorise_transaction("XYZXYZ UNKNOWN", 100.0, 0.0)
     assert conf == "Low"
     assert "no rule matched" in reason
+
+def test_cheque_bounce():
+    # Cheque return narration should be classified as Bounces/Cheque Bounce
+    cat, subcat, conf, reason = categorise_transaction("CHQ RETURN CHARGES", 150.0, 0.0)
+    assert cat == "Bounces"
+    assert subcat == "Cheque Bounce"
+    assert conf == "High"
+
+def test_rental_guard():
+    # Plain recurring credit without rent keywords should NOT be classified as House Property/Rental
+    cat, subcat, conf, reason = categorise_transaction("MONTHLY CREDIT", 0.0, 5000.0)
+    assert not (cat == "House Property" and subcat == "Rental Income")
+
+    # Credit with rent keywords should be classified as House Property/Rental
+    cat, subcat, conf, reason = categorise_transaction("RENT RECEIVED", 0.0, 5000.0)
+    assert cat == "House Property"
+    assert subcat == "Rental Income"

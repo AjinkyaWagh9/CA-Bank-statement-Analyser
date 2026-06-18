@@ -13,6 +13,9 @@ from ca_analyzer.normalization.standardizer import standardize_dataframe
 from ca_analyzer.transaction_engine.merchant_extractor import extract_merchant_and_counterparty
 from ca_analyzer.transaction_engine.narration_parser import extract_transaction_mode
 from ca_analyzer.transaction_engine.category_engine import apply_categorization
+from ca_analyzer.transaction_engine.inter_bank_transfer import tag_inter_bank_transfers
+from ca_analyzer.transaction_engine.loan_matcher import match_loans, build_loan_ledger
+from ca_analyzer.transaction_engine.salary_detector import detect_salary
 from ca_analyzer.presentation import build_ca_report
 
 logger = get_logger("consolidator")
@@ -59,9 +62,8 @@ def process_single_statement(filepath: str) -> pd.DataFrame:
     # 5. Apply categorization rules
     df = apply_categorization(df)
 
-    # 6. Phase 0: sync editable override columns from engine outputs
-    df["Category_Final"] = df["Category"]
-    df["Sub_Category_Final"] = df["Sub_Category"]
+    # Note: Category_Final / Sub_Category_Final sync is deferred to after
+    # the transaction engines run in consolidate_statements().
 
     return df
 
@@ -89,19 +91,63 @@ def consolidate_statements(filepaths: list, output_xlsx: str) -> str:
         
     # Concatenate all DataFrames
     consolidated_df = pd.concat(parsed_dfs, ignore_index=True)
-    
+
     # Assertions for consolidated dataframe sanity
     assert consolidated_df.columns.is_unique, "Duplicate column headers detected!"
     assert not consolidated_df.iloc[:, 0].astype(str).str.contains(
         "Date|Income Type|Expense Type|Bank|Narration", case=False
     ).any(), "Repeated header values detected in transaction data rows!"
-    
+
     # Run global validation checks
     validate_transactions(consolidated_df)
-    
+
+    # -----------------------------------------------------------------------
+    # BEFORE engine Category distribution
+    # -----------------------------------------------------------------------
+    logger.info("=== Category value_counts BEFORE engines ===")
+    print("\n=== Category value_counts BEFORE engines ===")
+    print(consolidated_df["Category"].value_counts().to_string())
+
+    # -----------------------------------------------------------------------
+    # Wire in transaction engines (order matters)
+    # -----------------------------------------------------------------------
+
+    # Engine 1: Inter-bank transfer tagging
+    consolidated_df = tag_inter_bank_transfers(consolidated_df)
+    ibt_count = (consolidated_df["Transfer_Group"] != "").sum()
+    logger.info(f"Inter-bank transfer legs tagged: {ibt_count}")
+    print(f"\nInter-bank transfer legs tagged: {ibt_count}")
+
+    # Engine 2: Loan matching
+    consolidated_df = match_loans(consolidated_df)
+    loan_ledger = build_loan_ledger(consolidated_df)
+    unique_loans = len(loan_ledger)
+    logger.info(f"Unique loan IDs detected: {unique_loans}")
+    print(f"Unique loan IDs detected: {unique_loans}")
+
+    # Engine 3: Salary detection
+    consolidated_df = detect_salary(consolidated_df)
+    salary_count = (consolidated_df["Category"] == "Salary").sum()
+    logger.info(f"Salary rows (after detector): {salary_count}")
+    print(f"Salary rows (after detector): {salary_count}")
+
+    # -----------------------------------------------------------------------
+    # RE-SYNC Category_Final / Sub_Category_Final AFTER engines
+    # (engine refinements become the CA's editable defaults)
+    # -----------------------------------------------------------------------
+    consolidated_df["Category_Final"] = consolidated_df["Category"]
+    consolidated_df["Sub_Category_Final"] = consolidated_df["Sub_Category"]
+
+    # -----------------------------------------------------------------------
+    # AFTER engine Category distribution
+    # -----------------------------------------------------------------------
+    logger.info("=== Category value_counts AFTER engines ===")
+    print("\n=== Category value_counts AFTER engines ===")
+    print(consolidated_df["Category"].value_counts().to_string())
+
     # Reconcile bank balances
     reconcile_all(consolidated_df)
-    
+
     # Build final Excel presentation report
     logger.info(f"Compiling final consolidated Excel report: {output_xlsx}")
     build_ca_report(consolidated_df, output_xlsx)

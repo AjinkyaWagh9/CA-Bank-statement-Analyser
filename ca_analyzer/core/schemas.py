@@ -34,6 +34,11 @@ CANONICAL_COLUMNS = [
     "Tax_Flag",
     "CG_Flag",
     "Remarks",
+    # Transaction engine outputs
+    "Transfer_Group",
+    "Loan_ID",
+    "Loan_Role",
+    "Loan_Status",
 ]
 
 CANONICAL_TYPES = {
@@ -71,6 +76,11 @@ CANONICAL_TYPES = {
     "Tax_Flag": str,
     "CG_Flag": str,
     "Remarks": str,
+    # Transaction engine outputs
+    "Transfer_Group": str,
+    "Loan_ID": str,
+    "Loan_Role": str,
+    "Loan_Status": str,
 }
 
 # Columns that are locked (original evidence — CAs must not edit)

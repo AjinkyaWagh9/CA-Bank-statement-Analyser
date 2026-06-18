@@ -25,6 +25,12 @@ def categorise_transaction(narration: str, debit: float, credit: float) -> tuple
             for subcat_name, keywords in subcats.items():
                 matched_kw = next((k for k in keywords if k in n), None)
                 if matched_kw is not None:
+                    # RENTAL GUARD: only classify as House Property/Rental if narration contains rent keywords
+                    if cat_name == "House Property" and subcat_name == "Rental Income":
+                        rent_keywords = ["rent", "rental", "lease", "house rent"]
+                        if not any(rk in n for rk in rent_keywords):
+                            continue
+
                     # Assess confidence: single short token -> Medium, longer/specific -> High
                     if len(matched_kw) <= 3:
                         confidence = "Medium"
@@ -43,6 +49,11 @@ def categorise_transaction(narration: str, debit: float, credit: float) -> tuple
     elif debit > 0.0:
         default_cat = "Others"
         default_sub = "Other Expense"
+
+        # CHEQUE BOUNCE check: match against cheque-return keywords
+        chq_keywords = ["chq return", "cheque return", "return charges", "ecs return"]
+        if any(ck in n for ck in chq_keywords):
+            return "Bounces", "Cheque Bounce", "High", "cheque return matched"
 
         # Cash withdrawal check with exclusion rules
         cash_rules = rules.get("debit_categories", {}).get("Cash", {}).get("Cash Withdrawal", [])
