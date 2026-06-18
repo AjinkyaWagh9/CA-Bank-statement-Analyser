@@ -58,13 +58,20 @@ Gap-closing plan from the current working `ca_analyzer` pipeline to the BRD targ
 - Loan Ledger + EMI Analysis + Related Party → after 2.2 loan engine.
 - Potential Capital Gains → after 3.x broker reconciliation.
 
-## Phase 2 — Smarter deterministic classification engines
-- [ ] 2.1 Inter-bank transfer engine: match `(Date, |Amount|)` debit↔credit across accounts. *(sonnet)*
-- [ ] 2.2 Loan engine v2: bank-loan disbursement↔EMI link + friend/relative ledger
-      (name→amount→date, `rapidfuzz`), partial repayment, outstanding, "not repaid → income". *(sonnet)*
-- [ ] 2.3 Salary pattern detector (amount + party + monthly recurrence) → "Potential Salary / Medium / Review". *(sonnet)*
-- [ ] 2.4 Expanded YAML rules for §7–8 keyword sets; rental guard; cheque-bounce. *(haiku)*
-- [ ] 2.5 GST breakup calculator (taxable/GST/gross at 18% when flagged). *(haiku)*
+## Phase 2 — Smarter deterministic classification engines — DONE (commit 3b032c5)
+- [x] 2.1 Inter-bank transfer engine (`transaction_engine/inter_bank_transfer.py`): same-amount/±1-day
+      debit↔credit across accounts → 68 legs tagged. Terminal: later engines never reclassify a leg.
+- [x] 2.2 Loan engine v2 (`loan_matcher.py`): bank-loan (word-boundary keywords) + STRICT personal-loan
+      requiring bidirectional evidence + person filter (excludes merchants/payment-rails/self).
+      Earlier draft over-matched 90 fabricated income loans → fixed to 0; no negative outstanding.
+      "Not repaid → income" gated by explicit loan keyword + ≥₹25k, marked Low confidence for CA review.
+- [x] 2.3 Salary pattern detector (`salary_detector.py`): recurring monthly credits → Potential Salary /
+      Medium (3 → 13). Skips transfer legs.
+- [x] 2.4 Expanded YAML keyword sets (salary/loan/rent/cheque-bounce) + rental guard + cheque-bounce category.
+- [x] 2.5 GST 18% breakup (Taxable/GST_Amount/Gross/GST_Rate) when narration indicates GST.
+- [x] New sheets: Inter-Bank Transfers, Loan Ledger, EMI Analysis, Related Party. 65 tests pass; reconcile 0.
+      Result: Miscellaneous 194→160, Others 661→629, +Inter-Bank Transfer 68, +Salary 13.
+      Classification still coarse (~80% Others/Misc) — needs Phase 3 LLM fallback for real lift.
 
 ## Phase 3 — LLM-assisted extraction & classification
 - [ ] 3.1 PDF bank parser: `pdfplumber`/`camelot` for digital PDFs → standardizer. *(sonnet)*
