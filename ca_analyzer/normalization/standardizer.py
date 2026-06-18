@@ -9,15 +9,29 @@ def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
     
-    # 1. Filter out duplicate header rows based on header keywords
+    # 1. Filter out duplicate header rows based on header keywords.
+    # Only inspect the raw transaction-data columns (raw_date, raw_narration,
+    # raw_chq_ref, raw_debit, raw_credit, raw_balance) — NOT traceability
+    # columns such as Statement_File_Name or Sheet_Name, which contain bank
+    # names and financial keywords that cause false positives (e.g. "HDFC BANK"
+    # in Statement_File_Name matches "BANK" for every HDFC row, then any row
+    # whose narration also contains "CREDIT" / "DEBIT" / "BALANCE" would be
+    # incorrectly classified as a duplicate header and silently dropped).
     HEADER_KEYWORDS = [
-        "DATE", "BANK", "NARRATION", "DEBIT", "CREDIT", "BALANCE", 
+        "DATE", "BANK", "NARRATION", "DEBIT", "CREDIT", "BALANCE",
         "AMOUNT", "CATEGORY", "SUB CATEGORY", "INCOME TYPE", "EXPENSE TYPE"
     ]
-    
+    _RAW_DATA_COLS = {
+        "raw_date", "raw_narration", "raw_chq_ref",
+        "raw_debit", "raw_credit", "raw_balance",
+    }
+
     def is_header_row(row):
         match_count = 0
-        for val in row.values:
+        for col, val in row.items():
+            # Only check raw transaction-data columns
+            if col not in _RAW_DATA_COLS:
+                continue
             if pd.isna(val):
                 continue
             val_str = str(val).upper().strip()
@@ -27,7 +41,7 @@ def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
                     break
         return match_count >= 2
 
-    # Drop any row that matches 2 or more header keywords
+    # Drop any row that matches 2 or more header keywords in raw data columns
     header_mask = df.apply(is_header_row, axis=1)
     df = df[~header_mask].reset_index(drop=True)
     
