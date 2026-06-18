@@ -58,7 +58,11 @@ def process_single_statement(filepath: str) -> pd.DataFrame:
     
     # 5. Apply categorization rules
     df = apply_categorization(df)
-    
+
+    # 6. Phase 0: sync editable override columns from engine outputs
+    df["Category_Final"] = df["Category"]
+    df["Sub_Category_Final"] = df["Sub_Category"]
+
     return df
 
 def consolidate_statements(filepaths: list, output_xlsx: str) -> str:

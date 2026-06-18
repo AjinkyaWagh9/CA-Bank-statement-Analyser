@@ -145,7 +145,15 @@ class ICICIParser(BaseParser):
             for c in range(sheet.ncols)
         ]
 
+        # Locate the S.No column index dynamically — it may not be at index 0
+        s_no_col_idx = 0
+        for ci, h in enumerate(headers):
+            if h.lower() == "s no.":
+                s_no_col_idx = ci
+                break
+
         rows = []
+        source_row_nos = []
         seen_transaction = False
 
         ###################################################################
@@ -184,7 +192,7 @@ class ICICIParser(BaseParser):
             # S.NO VALIDATION
             ###############################################################
 
-            s_no = row_vals[0]
+            s_no = row_vals[s_no_col_idx]
 
             if (
                 s_no is None
@@ -198,6 +206,7 @@ class ICICIParser(BaseParser):
                 continue
 
             rows.append(row_vals)
+            source_row_nos.append(r + 1)  # 1-based row number in original statement
             seen_transaction = True
 
         if len(rows) == 0:
@@ -213,6 +222,8 @@ class ICICIParser(BaseParser):
             rows,
             columns=headers
         )
+        # Attach source row numbers so they survive dedup
+        df["_source_row_no"] = source_row_nos
 
         ###################################################################
         # REMOVE DUPLICATES
@@ -298,6 +309,9 @@ class ICICIParser(BaseParser):
                 else:
                     canonical[target_col] = ""
 
+        # Carry source row numbers through to canonical output
+        canonical["_source_row_no"] = df["_source_row_no"].values
+
         ###################################################################
         # CLEAN DATA TYPES
         ###################################################################
@@ -348,5 +362,12 @@ class ICICIParser(BaseParser):
             )
 
         print("=" * 60)
+
+        # Traceability columns
+        import os
+        canonical["Statement_File_Name"] = os.path.basename(str(self.filepath))
+        canonical["Sheet_Name"] = sheet.name
+        canonical["Statement_Row_No"] = canonical["_source_row_no"].values
+        canonical = canonical.drop(columns=["_source_row_no"])
 
         return canonical

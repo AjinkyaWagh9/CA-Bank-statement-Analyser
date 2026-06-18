@@ -65,16 +65,18 @@ class SBIParser(BaseParser):
         headers = [str(ws.cell(row=header_row_idx, column=c).value or "").strip() for c in range(1, ws.max_column + 1)]
         
         rows = []
+        source_row_nos = []
         for r in range(header_row_idx + 1, ws.max_row + 1):
             row_vals = [ws.cell(row=r, column=c).value for c in range(1, len(headers) + 1)]
             if all(x is None or str(x).strip() == "" for x in row_vals):
                 continue
-                
+
             val_0 = str(row_vals[0]).strip()
             if "total" in val_0.lower() or "statement" in val_0.lower() or "note" in val_0.lower():
                 break
             rows.append(row_vals)
-            
+            source_row_nos.append(r)  # openpyxl rows are 1-based, r is already 1-based
+
         df = pd.DataFrame(rows, columns=headers)
         df.columns = [c.strip() for c in df.columns]
         
@@ -93,5 +95,12 @@ class SBIParser(BaseParser):
                 df_renamed[canonical_col] = df[excel_col]
             else:
                 df_renamed[canonical_col] = 0.0 if "debit" in canonical_col or "credit" in canonical_col or "balance" in canonical_col else ""
-                
+
+        # Traceability columns
+        import os
+        sheet_name = ws.title if ws.title else "Sheet1"
+        df_renamed["Statement_File_Name"] = os.path.basename(str(self.filepath))
+        df_renamed["Sheet_Name"] = sheet_name
+        df_renamed["Statement_Row_No"] = source_row_nos
+
         return df_renamed

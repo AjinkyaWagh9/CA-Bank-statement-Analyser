@@ -1,4 +1,5 @@
 import re
+import hashlib
 import pandas as pd
 from datetime import datetime, date
 
@@ -62,6 +63,35 @@ def fy_bounds(fy):
         return date(2024, 4, 1), date(2025, 3, 31)
     start = int(fy.split("-")[0])
     return date(start, 4, 1), date(start + 1, 3, 31)
+
+def make_transaction_id(
+    bank_name: str,
+    account_number: str,
+    date,
+    narration: str,
+    debit: float,
+    credit: float,
+    balance: float,
+    txn_seq: int,
+) -> str:
+    """
+    Return a deterministic, stable 12-character hex Transaction_ID (sha1).
+    Inputs are normalised to strings before hashing so that minor type
+    differences (e.g. 250.0 vs '250.0') do not affect the result.
+    """
+    date_str = str(date)[:10] if pd.notna(date) else "NaT"
+    parts = "|".join([
+        str(bank_name).strip().upper(),
+        str(account_number).strip(),
+        date_str,
+        str(narration).strip(),
+        f"{float(debit):.4f}",
+        f"{float(credit):.4f}",
+        f"{float(balance):.4f}",
+        str(int(txn_seq)),
+    ])
+    return hashlib.sha1(parts.encode("utf-8")).hexdigest()[:12]
+
 
 def format_inr(v) -> str:
     if pd.isna(v): return "₹ 0"

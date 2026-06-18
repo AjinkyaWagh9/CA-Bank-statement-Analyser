@@ -1,11 +1,13 @@
 import pandas as pd
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.styles import Font, PatternFill, Alignment, Protection
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.protection import SheetProtection
 from ca_analyzer.presentation.dashboard import create_dashboard_sheet
 from ca_analyzer.presentation.workbook_formatter import populate_and_format_table_sheet, format_custom_table_range
 from ca_analyzer.presentation.styles import HDR_FILL, HDR_FONT, ALT_FILL, BORDER, CENTER
 from ca_analyzer.core.utilities import format_inr
+from ca_analyzer.core.schemas import LOCKED_COLUMNS, UNLOCKED_COLUMNS
 from ca_analyzer.analytics import (
     generate_income_analysis, generate_expense_analysis, generate_cash_deposit_analysis,
     generate_high_value_transactions, generate_loan_analysis, generate_gst_analysis,
@@ -72,7 +74,10 @@ def build_ca_report(df: pd.DataFrame, output_path: str) -> str:
     for bank in sorted(df["Bank_Name"].unique()):
         bank_df = df[df["Bank_Name"] == bank].copy()
         create_transaction_sheet(wb, f"📒 {bank} Transactions", bank_df)
-        
+
+    # 16. Consolidated All Transactions master sheet (Phase 0 — editable overrides + locked evidence)
+    create_consolidated_master_sheet(wb, df)
+
     wb.save(output_path)
     return output_path
 
@@ -465,11 +470,105 @@ def create_transaction_sheet(wb, sheet_name, df_bank):
     """Creates a standardized bank-specific transaction ledger sheet."""
     ws = wb.create_sheet(sheet_name)
     df_bank = df_bank.sort_values(by=["Date", "Balance"]).copy()
-    
-    display_cols = ["Date", "Account_Number", "Narration", "Chq_Ref", "Debit", "Credit", "Balance", 
+
+    display_cols = ["Date", "Account_Number", "Narration", "Chq_Ref", "Debit", "Credit", "Balance",
                     "Merchant_Name", "Transaction_Mode", "Category", "Sub_Category"]
     sub_df = df_bank[display_cols].copy()
     sub_df = sub_df.rename(columns={"Account_Number": "Account No"})
-    
+
     title_text = sheet_name.replace("📒 ", "").upper()
     populate_and_format_table_sheet(ws, f"📒 {title_text}", sub_df)
+
+
+def create_consolidated_master_sheet(wb, df: pd.DataFrame):
+    """
+    Phase 0 — Consolidated 'All Transactions' master sheet.
+
+    Display columns chosen to give CAs full context + editable overrides.
+    Original-evidence columns are LOCKED; editable override columns are UNLOCKED.
+    Sheet protection is enabled (no password) so that locked cells cannot be
+    accidentally overwritten, but the sheet can be unprotected at any time.
+    """
+    ws = wb.create_sheet("📋 All Transactions")
+    df_sorted = df.sort_values(by=["Bank_Name", "Date", "txn_seq"]).copy()
+
+    # Ordered display columns for the master sheet
+    display_cols = [
+        # Evidence (locked)
+        "Transaction_ID",
+        "Date",
+        "Financial_Year",
+        "Bank_Name",
+        "Account_Number",
+        "Statement_File_Name",
+        "Sheet_Name",
+        "Statement_Row_No",
+        "Narration",
+        "Chq_Ref",
+        "Debit",
+        "Credit",
+        "Balance",
+        "Transaction_Mode",
+        "Merchant_Name",
+        "Counterparty",
+        "Confidence",
+        "Match_Reason",
+        # Engine outputs (locked — source of truth, CAs edit *_Final copies)
+        "Category",
+        "Sub_Category",
+        # Editable overrides (unlocked)
+        "Category_Final",
+        "Sub_Category_Final",
+        "GST_Flag",
+        "Loan_Flag",
+        "Tax_Flag",
+        "CG_Flag",
+        "Remarks",
+    ]
+
+    # Keep only columns present in df (graceful)
+    display_cols = [c for c in display_cols if c in df_sorted.columns]
+    sub_df = df_sorted[display_cols].copy()
+
+    # Build the sheet layout (title, spacer, headers, data rows) via the standard helper
+    populate_and_format_table_sheet(
+        ws,
+        "📋 CONSOLIDATED ALL TRANSACTIONS — MASTER LEDGER",
+        sub_df,
+        apply_table=True,
+    )
+
+    # -----------------------------------------------------------------
+    # Phase 0: Apply cell-level protection
+    # Header row = 3, data starts at row 4
+    # -----------------------------------------------------------------
+    locked_set = set(LOCKED_COLUMNS) | {"Category", "Sub_Category",
+                                         "Transaction_Mode", "Merchant_Name",
+                                         "Counterparty", "Confidence", "Match_Reason",
+                                         "Chq_Ref"}
+    unlocked_set = set(UNLOCKED_COLUMNS)
+
+    # Map column name -> column index (1-based) in the sheet
+    col_name_to_idx = {
+        ws.cell(row=3, column=c).value: c
+        for c in range(1, len(display_cols) + 1)
+    }
+
+    max_data_row = ws.max_row
+
+    for col_name, col_idx in col_name_to_idx.items():
+        is_unlocked = col_name in unlocked_set
+        for row_idx in range(4, max_data_row + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.protection = Protection(locked=not is_unlocked)
+
+    # Lock header and title rows (rows 1-3) — always locked
+    for row_idx in range(1, 4):
+        for col_idx in range(1, len(display_cols) + 1):
+            ws.cell(row=row_idx, column=col_idx).protection = Protection(locked=True)
+
+    # Enable sheet protection (no password — easily unlockable)
+    ws.protection = SheetProtection(sheet=True, password="")
+    ws.protection.enable()
+
+    # Freeze pane stays at B4 (set by populate_and_format_table_sheet)

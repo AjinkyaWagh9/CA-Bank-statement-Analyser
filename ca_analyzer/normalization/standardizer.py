@@ -1,5 +1,5 @@
 import pandas as pd
-from ca_analyzer.core.utilities import parse_date, parse_amount
+from ca_analyzer.core.utilities import parse_date, parse_amount, get_financial_year, make_transaction_id
 from ca_analyzer.core.schemas import CANONICAL_COLUMNS
 
 def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
@@ -65,10 +65,37 @@ def standardize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     for col in ["Merchant_Name", "Transaction_Mode", "Counterparty", "Category", "Sub_Category"]:
         if col not in df.columns:
             df[col] = ""
-            
-    # Ensure all canonical columns exist
+
+    # --- Phase 0: Derive Financial_Year from transaction Date ---
+    df["Financial_Year"] = df["Date"].apply(get_financial_year)
+
+    # --- Phase 0: Generate deterministic Transaction_ID ---
+    def _make_txid(row):
+        return make_transaction_id(
+            bank_name=row.get("Bank_Name", ""),
+            account_number=row.get("Account_Number", ""),
+            date=row["Date"],
+            narration=row.get("Narration", ""),
+            debit=row.get("Debit", 0.0),
+            credit=row.get("Credit", 0.0),
+            balance=row.get("Balance", 0.0),
+            txn_seq=row.get("txn_seq", 0),
+        )
+
+    df["Transaction_ID"] = df.apply(_make_txid, axis=1)
+
+    # --- Phase 0: Default editable override columns ---
+    # Category_Final / Sub_Category_Final will be synced from Category/Sub_Category
+    # after apply_categorization runs (see consolidator.py). Initialise as empty here
+    # so the canonical column list is satisfied.
+    if "Category_Final" not in df.columns:
+        df["Category_Final"] = ""
+    if "Sub_Category_Final" not in df.columns:
+        df["Sub_Category_Final"] = ""
+
+    # Ensure all canonical columns exist (fills missing traceability + flag columns with "")
     for col in CANONICAL_COLUMNS:
         if col not in df.columns:
             df[col] = ""
-            
+
     return df[CANONICAL_COLUMNS]

@@ -71,9 +71,10 @@ class HDFCParser(BaseParser):
         headers = [str(sheet.cell_value(header_row_idx, c)).strip() for c in range(sheet.ncols)]
         
         rows = []
+        source_row_nos = []
         for r in range(header_row_idx + 1, sheet.nrows):
             row_vals = [sheet.cell_value(r, c) for c in range(sheet.ncols)]
-            
+
             # Skip separator lines or empty lines
             val_0 = str(row_vals[0]).strip()
             if val_0.startswith("*") or val_0.startswith("Statement") or "registered office" in val_0.lower():
@@ -83,12 +84,13 @@ class HDFCParser(BaseParser):
                 break
             if val_0 == "":
                 # Could be a line with empty date but has details, or just padding
-                # Bank statements sometimes have narration wrapping to next line, 
+                # Bank statements sometimes have narration wrapping to next line,
                 # but standard HDFC has 1 txn per line. Let's make sure it's a valid row
                 if not any(str(x).strip() != "" for x in row_vals):
                     continue
             rows.append(row_vals)
-            
+            source_row_nos.append(r + 1)  # 1-based row number in original statement
+
         df = pd.DataFrame(rows, columns=headers)
         
         # Rename columns to standard internal names
@@ -107,5 +109,11 @@ class HDFCParser(BaseParser):
                 df_renamed[canonical_col] = df[excel_col]
             else:
                 df_renamed[canonical_col] = 0.0 if "debit" in canonical_col or "credit" in canonical_col or "balance" in canonical_col else ""
-                
+
+        # Traceability columns
+        import os
+        df_renamed["Statement_File_Name"] = os.path.basename(str(self.filepath))
+        df_renamed["Sheet_Name"] = sheet.name
+        df_renamed["Statement_Row_No"] = source_row_nos
+
         return df_renamed

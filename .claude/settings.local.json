@@ -7,7 +7,12 @@
       "Bash(git checkout *)",
       "Bash(git add *)",
       "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'Baseline: working ca_analyzer pipeline + BRD, context, and implementation plan *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(python -c \"from openpyxl.worksheet.protection import SheetProtection; sp = SheetProtection\\(\\); print\\(dir\\(sp\\)\\)\")",
+      "Bash(python3 *)",
+      "Bash(git stash *)",
+      "Bash(python -m pytest ca_analyzer/tests -q)",
+      "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'Phase 0: traceability, confidence, editable master sheet + ICICI parser fix *)"
     ]
   }
 }

@@ -32,14 +32,16 @@ def test_consolidate_pipeline():
             "📋 Cover Sheet", "📝 Executive Summary", "🏦 Bank Wise Summary", "📅 Monthly Cashflow",
             "💰 Income Analysis", "💸 Expense Analysis", "💵 Cash Deposit Analysis", "🚨 High Value Transactions",
             "🏠 Loan Analysis", "🧾 GST Analysis", "🧾 TDS Analysis", "📈 Investment Analysis",
-            "⚠️ Risk Flags", "📒 HDFC Transactions", "📒 ICICI Transactions", "📒 SBI Transactions"
+            "⚠️ Risk Flags", "📒 HDFC Transactions", "📒 ICICI Transactions", "📒 SBI Transactions",
+            "📋 All Transactions",
         ]
         assert list(wb.sheetnames) == expected_sheets
         
         # 3. Standard Tabular Sheets layout and tables check
         standard_tabulars = [
-            s for s in expected_sheets 
-            if s not in ["📋 Cover Sheet", "📝 Executive Summary", "💵 Cash Deposit Analysis"]
+            s for s in expected_sheets
+            if s not in ["📋 Cover Sheet", "📝 Executive Summary", "💵 Cash Deposit Analysis",
+                         "📋 All Transactions"]
         ]
         
         for sname in standard_tabulars:
@@ -94,13 +96,24 @@ def test_consolidate_pipeline():
         cash_ws = wb["💵 Cash Deposit Analysis"]
         assert cash_ws.freeze_panes == "B4"
         assert len(cash_ws.tables) == 1, f"Expected exactly 1 Excel Table in Cash Deposit sheet, got {len(cash_ws.tables)}"
-        
+
         # 6. Global Table Range starting index verification (startswith "A3")
         for sname in wb.sheetnames:
             ws = wb[sname]
             for tbl in ws.tables.values():
                 assert tbl.ref.startswith("A3"), f"Table '{tbl.displayName}' in '{sname}' must start with A3: {tbl.ref}"
-            
+
+        # 7. Phase 0 — All Transactions master sheet verification
+        all_ws = wb["📋 All Transactions"]
+        # Sheet protection enabled
+        assert all_ws.protection.sheet, "All Transactions sheet must have sheet protection enabled"
+        # New canonical columns present as headers
+        all_headers = {all_ws.cell(row=3, column=c).value for c in range(1, all_ws.max_column + 1)}
+        for expected_col in ["Transaction_ID", "Financial_Year", "Statement_File_Name",
+                              "Sheet_Name", "Statement_Row_No", "Confidence", "Match_Reason",
+                              "Category_Final", "Sub_Category_Final", "GST_Flag", "Remarks"]:
+            assert expected_col in all_headers, f"Missing column '{expected_col}' in All Transactions sheet"
+
         # Clean up test output
         wb.close()
         if os.path.exists(output_xlsx):

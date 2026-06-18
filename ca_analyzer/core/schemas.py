@@ -16,7 +16,24 @@ CANONICAL_COLUMNS = [
     "Counterparty",
     "Category",
     "Sub_Category",
-    "txn_seq"
+    "txn_seq",
+    # Phase 0 — traceability
+    "Transaction_ID",
+    "Statement_File_Name",
+    "Sheet_Name",
+    "Statement_Row_No",
+    "Financial_Year",
+    # Phase 0 — confidence signal
+    "Confidence",
+    "Match_Reason",
+    # Phase 0 — editable override columns (CA edits these)
+    "Category_Final",
+    "Sub_Category_Final",
+    "GST_Flag",
+    "Loan_Flag",
+    "Tax_Flag",
+    "CG_Flag",
+    "Remarks",
 ]
 
 CANONICAL_TYPES = {
@@ -36,5 +53,49 @@ CANONICAL_TYPES = {
     "Counterparty": str,
     "Category": str,
     "Sub_Category": str,
-    "txn_seq": int
+    "txn_seq": int,
+    # Phase 0 — traceability
+    "Transaction_ID": str,
+    "Statement_File_Name": str,
+    "Sheet_Name": str,
+    "Statement_Row_No": int,
+    "Financial_Year": str,
+    # Phase 0 — confidence signal
+    "Confidence": str,
+    "Match_Reason": str,
+    # Phase 0 — editable override columns
+    "Category_Final": str,
+    "Sub_Category_Final": str,
+    "GST_Flag": str,
+    "Loan_Flag": str,
+    "Tax_Flag": str,
+    "CG_Flag": str,
+    "Remarks": str,
 }
+
+# Columns that are locked (original evidence — CAs must not edit)
+LOCKED_COLUMNS = [
+    "Date",
+    "Narration",
+    "Debit",
+    "Credit",
+    "Balance",
+    "Bank_Name",
+    "Account_Number",
+    "Transaction_ID",
+    "Statement_File_Name",
+    "Sheet_Name",
+    "Statement_Row_No",
+    "Financial_Year",
+]
+
+# Columns that are unlocked (CA-editable overrides)
+UNLOCKED_COLUMNS = [
+    "Category_Final",
+    "Sub_Category_Final",
+    "GST_Flag",
+    "Loan_Flag",
+    "Tax_Flag",
+    "CG_Flag",
+    "Remarks",
+]
