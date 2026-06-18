@@ -75,8 +75,14 @@ Gap-closing plan from the current working `ca_analyzer` pipeline to the BRD targ
 
 ## Phase 3 — LLM-assisted extraction & classification
 - [ ] 3.1 PDF bank parser: `pdfplumber`/`camelot` for digital PDFs → standardizer. *(sonnet)*
-- [ ] 3.2 LLM fallback classifier: route low-confidence/`Miscellaneous`/business-vs-personal
-      rows to Claude (structured output); result lands in editable column. *(sonnet)*
+      BLOCKED: need a sample PDF bank statement to build/verify against.
+- [x] 3.2 LLM fallback classifier (`transaction_engine/llm_classifier.py`, commit 8b62b58):
+      refines Others/Misc/Low-confidence rows via Claude; chunked structured output +
+      prompt-cached taxonomy; allowed-taxonomy guard. Provider-pluggable Bedrock/first-party,
+      default Haiku 4.5. Triple-gated (llm.enabled flag default OFF + SDK + creds) → no-op until
+      enabled; deterministic-only mode preserved. Mock-tested only (71 pass).
+      TO RUN: `pip install 'anthropic[bedrock]'`, set `llm.enabled: true`, export AWS creds + AWS_REGION.
+      NOT YET validated against the live Bedrock API (no creds in env).
 - [ ] 3.3 LLM extraction for 26AS / AIS / TIS / broker statements → normalized evidence tables. *(sonnet)*
 - [ ] 3.4 Capital-gain reconciliation against extracted broker data. *(sonnet)*
 
