@@ -39,13 +39,22 @@ Gap-closing plan from the current working `ca_analyzer` pipeline to the BRD targ
       Reconciliation warnings 76→0 across all banks. Numbers now trustworthy for Phase 1.
 
 ## Phase 1 — Dynamic formula workbook (hardest core piece)
-- [ ] 1.1 Rewrite `report_builder` summary sheets (Summary, Income, Expense, Cash Flow, Tax,
-      80C, Loan, CG, Drawings) to emit SUMIFS/COUNTIFS/XLOOKUP against the Consolidated
-      master sheet instead of static Python-computed values. *(sonnet, review checkpoints)*
-- [ ] 1.2 Add missing §15 sheets: Potential Capital Gains, Loan Ledger, EMI Analysis,
-      Inter-Bank Transfer, Related Party, Unclassified, CA Observations. *(sonnet)*
-- [ ] 1.3 Named/dynamic ranges so adding rows doesn't break formulas. *(sonnet)*
-- [ ] 1.4 Verify "edit a cell → all sheets refresh" in Excel/LibreOffice. *(verification)*
+- [x] 1.1 Converted Bank Wise Summary, Income, Expense, Monthly Cashflow to live
+      SUMIFS/COUNTIFS keyed on Category_Final/Bank_Name/Date; 11 workbook named ranges
+      (whole-column refs to master sheet, letters derived programmatically). (commit 0986989)
+      Note: on sample data ~87% of txns are Others/Miscellaneous — classification quality is
+      weak by design until Phase 2/3; formulas are correct and auto-refresh on reclassification.
+- [ ] 1.2 New formula-only sheets (no engine dependency): Tax Payments, 80C Tracker,
+      Capital Gain (flag-based), Drawings, Unclassified (Others/Misc + Low confidence),
+      CA Observations (compliance flags + reconciliation discrepancies). *(sonnet)*
+      → make `reconcile_bank` RETURN discrepancies so CA Observations can list them.
+- [ ] 1.3 Verify "edit a cell → dependent sheets refresh" (try `formulas` pkg or manual
+      Excel/LibreOffice open; document verification level achieved). *(verification)*
+
+### Moved to Phase 2 (engine-dependent sheets, were §15)
+- Inter-Bank Transfer sheet → after 2.1 transfer engine.
+- Loan Ledger + EMI Analysis + Related Party → after 2.2 loan engine.
+- Potential Capital Gains → after 3.x broker reconciliation.
 
 ## Phase 2 — Smarter deterministic classification engines
 - [ ] 2.1 Inter-bank transfer engine: match `(Date, |Amount|)` debit↔credit across accounts. *(sonnet)*
