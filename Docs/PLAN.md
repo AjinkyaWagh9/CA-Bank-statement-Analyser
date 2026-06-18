@@ -76,14 +76,14 @@ Gap-closing plan from the current working `ca_analyzer` pipeline to the BRD targ
 ## Phase 3 — LLM-assisted extraction & classification
 - [ ] 3.1 PDF bank parser: `pdfplumber`/`camelot` for digital PDFs → standardizer. *(sonnet)*
       BLOCKED: need a sample PDF bank statement to build/verify against.
-- [x] 3.2 LLM fallback classifier (`transaction_engine/llm_classifier.py`, commit efa4030):
-      refines Others/Misc/Low-confidence rows via **OpenAI GPT-4o** (default gpt-4o-mini);
-      chunked structured output (`chat.completions.parse` + Pydantic); allowed-taxonomy guard.
-      Triple-gated (llm.enabled flag default OFF + openai SDK + OPENAI_API_KEY) → no-op until
-      enabled; deterministic-only mode preserved. Mock-tested only (70 pass).
-      (Was briefly on Bedrock; user switched to OpenAI — Bedrock code removed.)
-      TO RUN: `pip install openai`, `export OPENAI_API_KEY=sk-...`, set `llm.enabled: true`.
-      NOT YET validated against the live OpenAI API (no key in env).
+- [x] 3.2 LLM fallback classifier (`transaction_engine/llm_classifier.py`, commit f18132f):
+      refines Others/Misc/Low-confidence rows via **NVIDIA NIM / Kimi** (`moonshotai/kimi-k2.6`),
+      OpenAI-compatible SDK + base_url; chunked structured output (`chat.completions.parse` +
+      Pydantic, **temperature=0** — required, else Kimi outputs garbage); allowed-taxonomy guard.
+      Triple-gated (llm.enabled flag default OFF + openai SDK + NVIDIA_API_KEY) → no-op until enabled.
+      **VERIFIED LIVE: 6/6 sample rows reclassified correctly.** Mock tests 70 pass.
+      TO RUN: `export NVIDIA_API_KEY=nvapi-...`, set `llm.enabled: true`, run `consolidater.py`.
+      (Provider history: Bedrock → OpenAI → NVIDIA; code is provider-agnostic via base_url.)
 - [ ] 3.3 LLM extraction for 26AS / AIS / TIS / broker statements → normalized evidence tables. *(sonnet)*
 - [ ] 3.4 Capital-gain reconciliation against extracted broker data. *(sonnet)*
 
