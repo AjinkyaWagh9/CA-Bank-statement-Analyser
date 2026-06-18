@@ -21,7 +21,8 @@
       "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'docs: Phase 1.3 verified \\(live recompute proof\\) — Phase 1 complete *)",
       "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'docs: mark Phase 2 complete *)",
       "Skill(claude-api)",
-      "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'Phase 3.2: LLM fallback classifier \\(Amazon Bedrock + Anthropic\\), gated off by default *)"
+      "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'Phase 3.2: LLM fallback classifier \\(Amazon Bedrock + Anthropic\\), gated off by default *)",
+      "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'Phase 3.2: switch LLM classifier from Bedrock to OpenAI \\(GPT-4o family\\) *)"
     ]
   }
 }

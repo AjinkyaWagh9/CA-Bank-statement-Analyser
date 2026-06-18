@@ -1,14 +1,6 @@
 """
 LLM fallback classifier for transactions left as Others/Miscellaneous/Low-confidence
-by the rule engine. Uses the Anthropic Messages API via either:
-  - Amazon Bedrock  (provider="bedrock", default)
-  - Anthropic first-party API  (provider="anthropic")
-
-The actual client.messages.parse() call shape is IDENTICAL for both providers —
-same structured-output / output_format= usage and the same system prompt-cache block.
-Only the client object and the resolved model id differ.
-
-NOTE: Bedrock does NOT support the Files API or the Batches API; neither is used here.
+by the rule engine. Uses the OpenAI API (GPT-4o family).
 
 CONFIG GATE: llm.enabled must be true in thresholds.yaml; defaults to false.
 When disabled (or SDK/credentials absent) the function is a no-op and returns df unchanged.
@@ -39,7 +31,7 @@ ALLOWED_CATEGORIES: frozenset = frozenset(
 )
 
 # ---------------------------------------------------------------------------
-# System prompt (cached across chunks — same text every call)
+# System prompt (stable across chunks — OpenAI caches identical prompt prefixes)
 # ---------------------------------------------------------------------------
 SYSTEM_PROMPT = """You are a financial analysis assistant helping a Chartered Accountant (CA) \
 classify Indian bank statement transactions for ITR filing purposes.
@@ -68,125 +60,6 @@ RULES:
 
 
 # ---------------------------------------------------------------------------
-# Client construction helper — returns (client, model_id) or (None, None)
-# Tests can monkeypatch this function directly to avoid real SDK/cred calls.
-# ---------------------------------------------------------------------------
-
-def _build_client_and_model(cfg: dict) -> Tuple[Optional[object], Optional[str]]:
-    """
-    Build the appropriate Anthropic client and resolve the model id from config/env.
-
-    Returns (client, model_id) on success, or (None, None) when the provider is
-    unavailable (missing SDK import, missing credentials, etc.).
-
-    Supports two providers:
-      "bedrock"    — AnthropicBedrock client (requires anthropic[bedrock] extra + AWS creds)
-      "anthropic"  — Anthropic first-party client (requires ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN)
-    """
-    provider: str = cfg.get("provider", "bedrock")
-    model_override: str = cfg.get("model", "") or ""
-
-    # ------------------------------------------------------------------
-    # Bedrock path
-    # ------------------------------------------------------------------
-    if provider == "bedrock":
-        # SDK import guard (requires anthropic[bedrock] extra)
-        try:
-            from anthropic import AnthropicBedrock  # noqa: PLC0415
-        except ImportError:
-            logger.warning(
-                "LLM classifier: 'AnthropicBedrock' not importable. "
-                "Install the Bedrock extra with: pip install 'anthropic[bedrock]'. "
-                "Skipping LLM classification."
-            )
-            return None, None
-
-        # Credential guard: require at least one AWS identity signal + a region
-        has_creds = bool(
-            os.environ.get("AWS_ACCESS_KEY_ID")
-            or os.environ.get("AWS_PROFILE")
-            or os.environ.get("AWS_BEARER_TOKEN_BEDROCK")
-        )
-        region_env_key: str = cfg.get("bedrock_region_env", "AWS_REGION")
-        region: Optional[str] = os.environ.get(region_env_key) or os.environ.get("AWS_REGION")
-
-        if not has_creds or not region:
-            missing = []
-            if not has_creds:
-                missing.append(
-                    "AWS credentials (AWS_ACCESS_KEY_ID, AWS_PROFILE, or AWS_BEARER_TOKEN_BEDROCK)"
-                )
-            if not region:
-                missing.append(f"AWS region ({region_env_key} or AWS_REGION)")
-            logger.warning(
-                "LLM classifier: Missing Bedrock prerequisites — %s. "
-                "Skipping LLM classification.",
-                "; ".join(missing),
-            )
-            return None, None
-
-        # Resolve model id: config override → env var → built-in default
-        bedrock_model_env: str = cfg.get("bedrock_model_env", "BEDROCK_HAIKU_INFERENCE_PROFILE_ID")
-        bedrock_model_default: str = cfg.get(
-            "bedrock_model_default",
-            "global.anthropic.claude-haiku-4-5-20251001-v1:0",
-        )
-        model_id: str = (
-            model_override
-            or os.environ.get(bedrock_model_env, "")
-            or bedrock_model_default
-        )
-
-        try:
-            # aws_region is passed explicitly; the SDK resolves all other AWS creds
-            # from the standard credential chain (env vars, ~/.aws/credentials, IAM role, etc.)
-            client = AnthropicBedrock(aws_region=region)
-            return client, model_id
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("LLM classifier: Failed to construct AnthropicBedrock client: %s", exc)
-            return None, None
-
-    # ------------------------------------------------------------------
-    # Anthropic first-party path
-    # ------------------------------------------------------------------
-    if provider == "anthropic":
-        try:
-            import anthropic  # noqa: PLC0415
-        except ImportError:
-            logger.warning(
-                "LLM classifier: 'anthropic' package is not installed. "
-                "Install it with: pip install anthropic. Skipping LLM classification."
-            )
-            return None, None
-
-        api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
-        if not api_key:
-            logger.warning(
-                "LLM classifier: No API key found in ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN. "
-                "Skipping LLM classification."
-            )
-            return None, None
-
-        anthropic_model_default: str = cfg.get("anthropic_model_default", "claude-haiku-4-5")
-        model_id = model_override or anthropic_model_default
-
-        try:
-            client = anthropic.Anthropic()
-            return client, model_id
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("LLM classifier: Failed to construct Anthropic client: %s", exc)
-            return None, None
-
-    # Unknown provider
-    logger.warning(
-        "LLM classifier: Unknown provider '%s'. Expected 'bedrock' or 'anthropic'. "
-        "Skipping LLM classification.",
-        provider,
-    )
-    return None, None
-
-
-# ---------------------------------------------------------------------------
 # Pydantic models for structured output
 # ---------------------------------------------------------------------------
 
@@ -211,6 +84,47 @@ def _build_pydantic_models():
 
 
 # ---------------------------------------------------------------------------
+# Client construction helper — returns (client, model_id) or (None, None)
+# Tests can monkeypatch this function directly to avoid real SDK/cred calls.
+# ---------------------------------------------------------------------------
+
+def _build_client_and_model(cfg: dict) -> Tuple[Optional[object], Optional[str]]:
+    """
+    Build the OpenAI client and resolve the model id from config.
+
+    Returns (client, model_id) on success, or (None, None) when the provider is
+    unavailable (missing SDK import, missing API key, etc.).
+    """
+    try:
+        from openai import OpenAI  # noqa: PLC0415
+    except ImportError:
+        logger.warning(
+            "LLM classifier: 'openai' package is not installed. "
+            "Install it with: pip install openai. Skipping LLM classification."
+        )
+        return None, None
+
+    api_key_env: str = cfg.get("api_key_env", "OPENAI_API_KEY")
+    api_key = os.environ.get(api_key_env)
+    if not api_key:
+        logger.warning(
+            "LLM classifier: No API key found in %s. "
+            "Skipping LLM classification.",
+            api_key_env,
+        )
+        return None, None
+
+    model_id: str = cfg.get("model", "gpt-4o-mini") or "gpt-4o-mini"
+
+    try:
+        client = OpenAI()  # reads OPENAI_API_KEY from env automatically
+        return client, model_id
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("LLM classifier: Failed to construct OpenAI client: %s", exc)
+        return None, None
+
+
+# ---------------------------------------------------------------------------
 # Core classification function
 # ---------------------------------------------------------------------------
 
@@ -226,15 +140,12 @@ def classify_with_llm(df: pd.DataFrame) -> pd.DataFrame:
     unavailable.
 
     Config keys read from thresholds.yaml:
-      llm.enabled               (bool, default false)
-      llm.provider              (str,  "bedrock" | "anthropic", default "bedrock")
-      llm.model                 (str,  if blank, resolved from env per provider)
-      llm.bedrock_model_env     (str,  env var name for Bedrock inference-profile ID)
-      llm.bedrock_model_default (str,  fallback Bedrock inference-profile ID)
-      llm.bedrock_region_env    (str,  env var name for AWS region)
-      llm.anthropic_model_default (str, fallback first-party model name)
-      llm.chunk_size            (int,  default 25)
-      llm.max_rows              (int,  default 2000)
+      llm.enabled       (bool, default false)
+      llm.provider      (str,  "openai")
+      llm.model         (str,  default "gpt-4o-mini")
+      llm.api_key_env   (str,  env var name for OpenAI API key)
+      llm.chunk_size    (int,  default 25)
+      llm.max_rows      (int,  default 2000)
     """
     # ------------------------------------------------------------------
     # Step 1: CONFIG GATE
@@ -246,13 +157,13 @@ def classify_with_llm(df: pd.DataFrame) -> pd.DataFrame:
         logger.debug("LLM classifier is disabled (llm.enabled=false). Returning df unchanged.")
         return df
 
-    chunk_size: int = int(llm_cfg.get("chunk_size", 25))
-    max_rows: int = int(llm_cfg.get("max_rows", 2000))
-
     # SDK / credentials availability check — build client and resolve model id
     client, model = _build_client_and_model(llm_cfg)
     if client is None:
         return df
+
+    chunk_size: int = int(llm_cfg.get("chunk_size", 25))
+    max_rows: int = int(llm_cfg.get("max_rows", 2000))
 
     # Pydantic models
     _TxnClass, ChunkResult = _build_pydantic_models()
@@ -286,11 +197,7 @@ def classify_with_llm(df: pd.DataFrame) -> pd.DataFrame:
     logger.info("LLM classifier: Reclassifying %d rows in chunks of %d.", len(selected_idx), chunk_size)
 
     # ------------------------------------------------------------------
-    # Step 3: CHUNK + CALL
-    # The client.messages.parse() call shape is IDENTICAL for both Bedrock and
-    # the first-party Anthropic client — same output_format= structured-output
-    # usage and the same system prompt-cache block.  Only the client object
-    # and the resolved model id differ (set above by _build_client_and_model).
+    # Step 3: CHUNK + CALL (OpenAI structured-output via beta.chat.completions.parse)
     # ------------------------------------------------------------------
     for chunk_start in range(0, len(selected_idx), chunk_size):
         chunk_idx = selected_idx[chunk_start: chunk_start + chunk_size]
@@ -311,20 +218,28 @@ def classify_with_llm(df: pd.DataFrame) -> pd.DataFrame:
         user_text = "\n".join(lines)
 
         try:
-            resp = client.messages.parse(
+            completion = client.beta.chat.completions.parse(
                 model=model,
-                max_tokens=4096,
-                system=[
-                    {
-                        "type": "text",
-                        "text": SYSTEM_PROMPT,
-                        "cache_control": {"type": "ephemeral"},
-                    }
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_text},
                 ],
-                messages=[{"role": "user", "content": user_text}],
-                output_format=ChunkResult,
+                response_format=ChunkResult,
             )
-            result = resp.parsed_output  # a ChunkResult instance
+            msg = completion.choices[0].message
+            if getattr(msg, "refusal", None):   # safety refusal → skip this chunk
+                logger.warning(
+                    "LLM classifier: Chunk %d-%d refused by model. Leaving those rows unchanged.",
+                    chunk_start, chunk_start + len(chunk_idx) - 1,
+                )
+                continue
+            result = msg.parsed                 # a ChunkResult instance (or None → skip)
+            if result is None:
+                logger.warning(
+                    "LLM classifier: Chunk %d-%d returned None parsed result. Leaving those rows unchanged.",
+                    chunk_start, chunk_start + len(chunk_idx) - 1,
+                )
+                continue
 
         except Exception as exc:  # noqa: BLE001
             logger.warning(
