@@ -4,27 +4,30 @@ from ca_analyzer.core.logger import get_logger
 
 logger = get_logger("reconciliation")
 
-def reconcile_bank(df: pd.DataFrame, bank_name: str, account_num: str) -> bool:
+def reconcile_bank(df: pd.DataFrame, bank_name: str, account_num: str) -> list:
     """
     Reconciles balance continuity and overall opening/closing balances for a specific bank account.
+    Returns a list of discrepancy dicts (empty list = no discrepancies).
     """
     bank_df = df[(df["Bank_Name"] == bank_name) & (df["Account_Number"] == account_num)].copy()
     if bank_df.empty:
-        return True
-        
+        return []
+
+    discrepancies = []
+
     # Sort chronologically by original statement sequence to check continuity
     bank_df = bank_df.sort_values(by="txn_seq")
-    
+
     balances = bank_df["Balance"].values
     debits = bank_df["Debit"].values
     credits = bank_df["Credit"].values
-    
+
     for i in range(1, len(balances)):
         prev_bal = balances[i - 1]
         curr_bal = balances[i]
         deb = debits[i]
         cred = credits[i]
-        
+
         expected_bal = prev_bal - deb + cred
         diff = abs(curr_bal - expected_bal)
         if diff > 1.0:
@@ -33,15 +36,25 @@ def reconcile_bank(df: pd.DataFrame, bank_name: str, account_num: str) -> bool:
                 f"Previous: {prev_bal}, Expected: {expected_bal}, Actual: {curr_bal}, Difference: {diff}. "
                 f"This may be due to rounding or missing transactions in the source statement. Continuing."
             )
-            
+            discrepancies.append({
+                "bank": bank_name,
+                "account": account_num,
+                "index": i,
+                "prev": prev_bal,
+                "expected": expected_bal,
+                "actual": curr_bal,
+                "diff": diff,
+                "type": "continuity",
+            })
+
     # Rule 5: Overall Closing Balance reconciliation
     total_debit = bank_df["Debit"].sum()
     total_credit = bank_df["Credit"].sum()
-    
+
     # Back-calculate the opening balance before the first transaction in statement
     opening_bal = balances[0] - credits[0] + debits[0]
     closing_bal = balances[-1]
-    
+
     expected_closing = opening_bal + total_credit - total_debit
     diff_closing = abs(closing_bal - expected_closing)
     if diff_closing > 1.0:
@@ -51,13 +64,26 @@ def reconcile_bank(df: pd.DataFrame, bank_name: str, account_num: str) -> bool:
             f"Expected: {expected_closing}, Actual: {closing_bal}, Difference: {diff_closing}. "
             f"This may be due to rounding or missing transactions in the source statement. Continuing."
         )
-        
-    logger.info(f"Reconciliation successful for {bank_name} account {account_num}.")
-    return True
+        discrepancies.append({
+            "bank": bank_name,
+            "account": account_num,
+            "index": len(balances) - 1,
+            "prev": opening_bal,
+            "expected": expected_closing,
+            "actual": closing_bal,
+            "diff": diff_closing,
+            "type": "closing",
+        })
 
-def reconcile_all(df: pd.DataFrame) -> bool:
-    """Groups transactions by bank account and performs reconciliation on each."""
+    logger.info(f"Reconciliation successful for {bank_name} account {account_num}.")
+    return discrepancies
+
+def reconcile_all(df: pd.DataFrame) -> list:
+    """Groups transactions by bank account and performs reconciliation on each.
+    Returns a list of all discrepancy dicts across all accounts (empty = no discrepancies)."""
+    all_discrepancies = []
     accounts = df.groupby(["Bank_Name", "Account_Number"])
     for (bank_name, account_num), _ in accounts:
-        reconcile_bank(df, bank_name, account_num)
-    return True
+        discrepancies = reconcile_bank(df, bank_name, account_num)
+        all_discrepancies.extend(discrepancies)
+    return all_discrepancies

@@ -15,7 +15,9 @@
       "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'Phase 0: traceability, confidence, editable master sheet + ICICI parser fix *)",
       "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'Phase 0.5: fix transaction row loss in standardizer header filter *)",
       "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'docs: mark Phase 0 and 0.5 complete in PLAN.md *)",
-      "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'Phase 1.1: formula-driven core summary sheets + named ranges *)"
+      "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'Phase 1.1: formula-driven core summary sheets + named ranges *)",
+      "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'docs: mark Phase 1.1 done; resequence engine-dependent sheets to Phase 2 *)",
+      "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'Phase 1.2: formula-driven Tax/80C/Capital Gain/Drawings + Unclassified + CA Observations *)"
     ]
   }
 }

@@ -32,16 +32,25 @@ def test_consolidate_pipeline():
             "📋 Cover Sheet", "📝 Executive Summary", "🏦 Bank Wise Summary", "📅 Monthly Cashflow",
             "💰 Income Analysis", "💸 Expense Analysis", "💵 Cash Deposit Analysis", "🚨 High Value Transactions",
             "🏠 Loan Analysis", "🧾 GST Analysis", "🧾 TDS Analysis", "📈 Investment Analysis",
-            "⚠️ Risk Flags", "📒 HDFC Transactions", "📒 ICICI Transactions", "📒 SBI Transactions",
+            "⚠️ Risk Flags",
+            "🧾 Tax Payments", "💼 80C Deduction Tracker", "📈 Capital Gain",
+            "🏧 Drawings", "❓ Unclassified Transactions", "📌 CA Observations",
+            "📒 HDFC Transactions", "📒 ICICI Transactions", "📒 SBI Transactions",
             "📋 All Transactions",
         ]
         assert list(wb.sheetnames) == expected_sheets
         
         # 3. Standard Tabular Sheets layout and tables check
+        # Phase 1.2 sheets have custom layouts (formulas + static mixed, multi-section)
+        # so they are excluded from the generic tabular check.
+        PHASE12_CUSTOM_SHEETS = {
+            "🧾 Tax Payments", "💼 80C Deduction Tracker", "📈 Capital Gain",
+            "🏧 Drawings", "❓ Unclassified Transactions", "📌 CA Observations",
+        }
         standard_tabulars = [
             s for s in expected_sheets
             if s not in ["📋 Cover Sheet", "📝 Executive Summary", "💵 Cash Deposit Analysis",
-                         "📋 All Transactions"]
+                         "📋 All Transactions"] and s not in PHASE12_CUSTOM_SHEETS
         ]
 
         # Phase 1.1: These four sheets use Excel formula cells instead of static values

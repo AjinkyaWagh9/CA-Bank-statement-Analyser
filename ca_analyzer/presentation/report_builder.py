@@ -14,6 +14,7 @@ from ca_analyzer.analytics import (
     generate_high_value_transactions, generate_loan_analysis, generate_gst_analysis,
     generate_tds_analysis, generate_investment_analysis, generate_risk_flags
 )
+from ca_analyzer.validation.reconciliation import reconcile_all
 
 # ---------------------------------------------------------------------------
 # Canonical category lists (must match category_rules.yaml output exactly)
@@ -133,8 +134,29 @@ def build_ca_report(df: pd.DataFrame, output_path: str) -> str:
     
     # 14. Risk Flags
     create_risk_flags_sheet(wb, df)
-    
-    # 15+. Bank-wise transaction ledgers
+
+    # 15. Tax Payments
+    create_tax_payments_sheet(wb, df)
+
+    # 16. 80C Deduction Tracker
+    create_80c_tracker_sheet(wb, df)
+
+    # 17. Capital Gain
+    create_capital_gain_sheet(wb, df)
+
+    # 18. Drawings
+    create_drawings_sheet(wb, df)
+
+    # 19. Unclassified Transactions
+    create_unclassified_sheet(wb, df)
+
+    # 20. Run reconciliation and pass discrepancies to CA Observations
+    reconciliation_discrepancies = reconcile_all(df)
+
+    # 21. CA Observations
+    create_ca_observations_sheet(wb, df, reconciliation_discrepancies)
+
+    # 22+. Bank-wise transaction ledgers
     for bank in sorted(df["Bank_Name"].unique()):
         bank_df = df[df["Bank_Name"] == bank].copy()
         create_transaction_sheet(wb, f"📒 {bank} Transactions", bank_df)
@@ -814,6 +836,480 @@ def create_risk_flags_sheet(wb, df):
     ws = wb.create_sheet("⚠️ Risk Flags")
     risk_df = generate_risk_flags(df)
     populate_and_format_table_sheet(ws, "⚠️ SUSPICIOUS PATTERNS & REGULATORY AUDIT FLAGS", risk_df)
+
+def create_tax_payments_sheet(wb, df):
+    """
+    Phase 1.2 — Tax Payments summary sheet.
+    Rows use SUMIFS/COUNTIFS against m_Debit, m_CatFinal, m_SubCatFinal, m_TaxFlag.
+    """
+    ws = wb.create_sheet("🧾 Tax Payments")
+    headers = ["Tax Type", "Amount", "Count"]
+    num_cols = len(headers)
+
+    _write_formula_sheet_title(ws, "🧾 TAX PAYMENTS ANALYSIS", num_cols)
+    _write_header_row(ws, 3, headers)
+
+    rows_data = [
+        ("All Tax Payments (Category)",      "=SUMIFS(m_Debit,m_CatFinal,\"Taxes\")",              "=COUNTIFS(m_CatFinal,\"Taxes\")"),
+        ("  - Income Tax / Advance Tax",     "=SUMIFS(m_Debit,m_SubCatFinal,\"Tax Payment\")",     "=COUNTIFS(m_SubCatFinal,\"Tax Payment\")"),
+        ("  - GST Payments",                 "=SUMIFS(m_Debit,m_SubCatFinal,\"GST Payment\")",     "=COUNTIFS(m_SubCatFinal,\"GST Payment\")"),
+        ("Tax-Flagged Payments (Y)",         "=SUMIFS(m_Debit,m_TaxFlag,\"Y\")",                   "=COUNTIFS(m_TaxFlag,\"Y\")"),
+        ("Tax-Flagged Payments (Yes)",       "=SUMIFS(m_Debit,m_TaxFlag,\"Yes\")",                 "=COUNTIFS(m_TaxFlag,\"Yes\")"),
+    ]
+
+    first_data_row = 4
+    for i, (label, amount_formula, count_formula) in enumerate(rows_data):
+        row = first_data_row + i
+        ws.row_dimensions[row].height = 18
+        ws.cell(row=row, column=1, value=label).border = BORDER
+        ws.cell(row=row, column=2, value=amount_formula).border = BORDER
+        ws.cell(row=row, column=3, value=count_formula).border = BORDER
+
+    # TOTAL row — sum category row + flag rows (rows 4, 7, 8 → indices 0, 3, 4)
+    last_data_row = first_data_row + len(rows_data) - 1
+    total_row = last_data_row + 1
+    ws.row_dimensions[total_row].height = 18
+    ws.cell(row=total_row, column=1, value="TOTAL").border = BORDER
+    ws.cell(row=total_row, column=2, value=f"=B{first_data_row}+B{first_data_row+3}+B{first_data_row+4}").border = BORDER
+    ws.cell(row=total_row, column=3, value=f"=C{first_data_row}+C{first_data_row+3}+C{first_data_row+4}").border = BORDER
+    _style_total_row(ws, total_row, num_cols)
+
+    # Note row
+    note_row = total_row + 1
+    ws.row_dimensions[note_row].height = 18
+    note_cell = ws.cell(row=note_row, column=1, value="Note: Flag-based rows (Y/Yes) will be 0 until Tax_Flag is set by CA.")
+    note_cell.font = Font(name="Calibri", italic=True, color="7F7F7F")
+    note_cell.border = BORDER
+    for col in range(2, num_cols + 1):
+        ws.cell(row=note_row, column=col).border = BORDER
+
+    _apply_currency_format(ws, first_data_row, total_row, [2])
+
+    ws.column_dimensions["A"].width = 35
+    ws.column_dimensions["B"].width = 18
+    ws.column_dimensions["C"].width = 12
+    ws.freeze_panes = "B4"
+
+
+def create_80c_tracker_sheet(wb, df):
+    """
+    Phase 1.2 — 80C Deduction Tracker sheet.
+    Approximates 80C-eligible amounts using SUMIFS against m_CatFinal / m_SubCatFinal.
+    """
+    ws = wb.create_sheet("💼 80C Deduction Tracker")
+    headers = ["80C Category", "Amount (₹)", "Note"]
+    num_cols = len(headers)
+
+    _write_formula_sheet_title(ws, "💼 80C DEDUCTION TRACKER (APPROXIMATE)", num_cols)
+
+    # Header note row (row 2 is spacer — add note in row 3, push headers to row 4)
+    ws.merge_cells("A2:C2")
+    note2_cell = ws.cell(row=2, column=1,
+        value="Note: Individual 80C items share 'Investments' subcategory. Verify against challans, premium receipts, and CA-confirmed records.")
+    note2_cell.font = Font(name="Calibri", italic=True, size=9, color="7F7F7F")
+    note2_cell.alignment = Alignment(horizontal="left", vertical="center")
+    for col in range(1, num_cols + 1):
+        ws.cell(row=2, column=col).border = BORDER
+
+    _write_header_row(ws, 3, headers)
+
+    rows_data = [
+        ("Life Insurance Premium",                  "=SUMIFS(m_Debit,m_CatFinal,\"Insurance\")",    "Sec 80C / 80D — Insurance premiums"),
+        ("All Investments (PPF / ELSS / NPS / Sukanya)", "=SUMIFS(m_Debit,m_CatFinal,\"Investments\")", "Approx — all investment outflows (PPF, ELSS, NPS, Sukanya)"),
+        ("School / Tuition Fees",                   0,                                              "No category mapping — manual entry required"),
+        ("TOTAL 80C (Approximate)",                 None,                                           "Sum of above"),
+    ]
+
+    first_data_row = 4
+    for i, (label, amount, note_text) in enumerate(rows_data):
+        row = first_data_row + i
+        ws.row_dimensions[row].height = 18
+        ws.cell(row=row, column=1, value=label).border = BORDER
+        ws.cell(row=row, column=3, value=note_text).border = BORDER
+
+        if amount is None:
+            # TOTAL row — sum of data rows above (skip school/tuition which is static 0)
+            total_formula = f"=B{first_data_row}+B{first_data_row+1}+B{first_data_row+2}"
+            ws.cell(row=row, column=2, value=total_formula).border = BORDER
+            _style_total_row(ws, row, num_cols)
+        else:
+            ws.cell(row=row, column=2, value=amount).border = BORDER
+
+    # Footer note
+    footer_row = first_data_row + len(rows_data)
+    ws.row_dimensions[footer_row].height = 18
+    footer_cell = ws.cell(row=footer_row, column=1,
+        value="⚠️ These figures are approximate. Verify against investment challans, premium receipts, and CA-confirmed records.")
+    footer_cell.font = Font(name="Calibri", italic=True, color="C00000")
+    footer_cell.border = BORDER
+    for col in range(2, num_cols + 1):
+        ws.cell(row=footer_row, column=col).border = BORDER
+
+    _apply_currency_format(ws, first_data_row, first_data_row + len(rows_data) - 1, [2])
+
+    ws.column_dimensions["A"].width = 35
+    ws.column_dimensions["B"].width = 18
+    ws.column_dimensions["C"].width = 50
+    ws.freeze_panes = "B4"
+
+
+def create_capital_gain_sheet(wb, df):
+    """
+    Phase 1.2 — Capital Gain sheet.
+    Uses SUMIFS/COUNTIFS against m_Credit, m_CatFinal, m_CGFlag.
+    """
+    ws = wb.create_sheet("📈 Capital Gain")
+    headers = ["Capital Gain Type", "Credit Amount", "Count"]
+    num_cols = len(headers)
+
+    _write_formula_sheet_title(ws, "📈 CAPITAL GAIN ANALYSIS", num_cols)
+    _write_header_row(ws, 3, headers)
+
+    rows_data = [
+        ("Capital Gains (Category-based)",  "=SUMIFS(m_Credit,m_CatFinal,\"Capital Gains\")", "=COUNTIFS(m_CatFinal,\"Capital Gains\")"),
+        ("Capital Gains (CG_Flag = Y)",     "=SUMIFS(m_Credit,m_CGFlag,\"Y\")",               "=COUNTIFS(m_CGFlag,\"Y\")"),
+        ("Capital Gains (CG_Flag = Yes)",   "=SUMIFS(m_Credit,m_CGFlag,\"Yes\")",             "=COUNTIFS(m_CGFlag,\"Yes\")"),
+    ]
+
+    first_data_row = 4
+    for i, (label, amount_formula, count_formula) in enumerate(rows_data):
+        row = first_data_row + i
+        ws.row_dimensions[row].height = 18
+        ws.cell(row=row, column=1, value=label).border = BORDER
+        ws.cell(row=row, column=2, value=amount_formula).border = BORDER
+        ws.cell(row=row, column=3, value=count_formula).border = BORDER
+
+    # TOTAL row
+    last_data_row = first_data_row + len(rows_data) - 1
+    total_row = last_data_row + 1
+    ws.row_dimensions[total_row].height = 18
+    ws.cell(row=total_row, column=1, value="TOTAL").border = BORDER
+    ws.cell(row=total_row, column=2, value=f"=SUM(B{first_data_row}:B{last_data_row})").border = BORDER
+    ws.cell(row=total_row, column=3, value=f"=SUM(C{first_data_row}:C{last_data_row})").border = BORDER
+    _style_total_row(ws, total_row, num_cols)
+
+    # Note row
+    note_row = total_row + 1
+    ws.row_dimensions[note_row].height = 18
+    note_cell = ws.cell(row=note_row, column=1,
+        value="Note: Flag-based rows will be 0 until CG_Flag is set. Detailed broker reconciliation in Phase 3.")
+    note_cell.font = Font(name="Calibri", italic=True, color="7F7F7F")
+    note_cell.border = BORDER
+    for col in range(2, num_cols + 1):
+        ws.cell(row=note_row, column=col).border = BORDER
+
+    _apply_currency_format(ws, first_data_row, total_row, [2])
+
+    ws.column_dimensions["A"].width = 35
+    ws.column_dimensions["B"].width = 18
+    ws.column_dimensions["C"].width = 12
+    ws.freeze_panes = "B4"
+
+
+def create_drawings_sheet(wb, df):
+    """
+    Phase 1.2 — Drawings sheet.
+    Summarises personal/business drawings by category using SUMIFS/COUNTIFS.
+    """
+    ws = wb.create_sheet("🏧 Drawings")
+    headers = ["Drawing Category", "Amount (₹)", "Count"]
+    num_cols = len(headers)
+
+    _write_formula_sheet_title(ws, "🏧 DRAWINGS & PERSONAL EXPENSE SUMMARY", num_cols)
+    _write_header_row(ws, 3, headers)
+
+    rows_data = [
+        ("Tax Payments",             "=SUMIFS(m_Debit,m_CatFinal,\"Taxes\")",       "=COUNTIFS(m_CatFinal,\"Taxes\")"),
+        ("GST Payments",             "=SUMIFS(m_Debit,m_SubCatFinal,\"GST Payment\")", "=COUNTIFS(m_SubCatFinal,\"GST Payment\")"),
+        ("Utility Payments",         "=SUMIFS(m_Debit,m_CatFinal,\"Utilities\")",   "=COUNTIFS(m_CatFinal,\"Utilities\")"),
+        ("Cash Withdrawals",         "=SUMIFS(m_Debit,m_CatFinal,\"Cash\")",        "=COUNTIFS(m_CatFinal,\"Cash\")"),
+        ("Insurance Premium (Personal)", "=SUMIFS(m_Debit,m_CatFinal,\"Insurance\")", "=COUNTIFS(m_CatFinal,\"Insurance\")"),
+        ("Food / Household",         "=SUMIFS(m_Debit,m_CatFinal,\"Food\")",        "=COUNTIFS(m_CatFinal,\"Food\")"),
+        ("Shopping / Personal",      "=SUMIFS(m_Debit,m_CatFinal,\"Shopping\")",    "=COUNTIFS(m_CatFinal,\"Shopping\")"),
+    ]
+
+    first_data_row = 4
+    for i, (label, amount_formula, count_formula) in enumerate(rows_data):
+        row = first_data_row + i
+        ws.row_dimensions[row].height = 18
+        ws.cell(row=row, column=1, value=label).border = BORDER
+        ws.cell(row=row, column=2, value=amount_formula).border = BORDER
+        ws.cell(row=row, column=3, value=count_formula).border = BORDER
+
+    # TOTAL row
+    last_data_row = first_data_row + len(rows_data) - 1
+    total_row = last_data_row + 1
+    ws.row_dimensions[total_row].height = 18
+    ws.cell(row=total_row, column=1, value="TOTAL Drawings").border = BORDER
+    ws.cell(row=total_row, column=2, value=f"=SUM(B{first_data_row}:B{last_data_row})").border = BORDER
+    ws.cell(row=total_row, column=3, value=f"=SUM(C{first_data_row}:C{last_data_row})").border = BORDER
+    _style_total_row(ws, total_row, num_cols)
+
+    _apply_currency_format(ws, first_data_row, total_row, [2])
+
+    ws.column_dimensions["A"].width = 35
+    ws.column_dimensions["B"].width = 18
+    ws.column_dimensions["C"].width = 12
+    ws.freeze_panes = "B4"
+
+
+def create_unclassified_sheet(wb, df):
+    """
+    Phase 1.2 — Unclassified Transactions sheet.
+    Static filtered table of rows where Category_Final is Others/Miscellaneous
+    or Confidence is Low/LOW.
+    """
+    ws = wb.create_sheet("❓ Unclassified Transactions")
+    ws.sheet_view.showGridLines = False
+
+    # Filter unclassified rows
+    mask = (
+        df["Category_Final"].isin(["Others", "Miscellaneous"]) |
+        df["Confidence"].isin(["Low", "LOW"])
+    )
+    unclassified = df[mask].copy()
+
+    display_cols = ["Transaction_ID", "Date", "Bank_Name", "Narration", "Debit", "Credit", "Confidence", "Category_Final"]
+    # Keep only columns present
+    display_cols = [c for c in display_cols if c in unclassified.columns]
+    sub_df = unclassified[display_cols].copy()
+
+    count = len(sub_df)
+    total_debit = sub_df["Debit"].sum() if "Debit" in sub_df.columns else 0.0
+    total_credit = sub_df["Credit"].sum() if "Credit" in sub_df.columns else 0.0
+
+    num_cols = len(display_cols)
+    last_col_letter = get_column_letter(num_cols)
+
+    # Row 1: Title (merged)
+    ws.merge_cells(f"A1:{last_col_letter}1")
+    title_cell = ws.cell(row=1, column=1, value="❓ UNCLASSIFIED TRANSACTIONS (Reflects engine classification at generation time)")
+    title_cell.font = Font(name="Calibri", bold=True, size=14, color="FFFFFF")
+    title_cell.fill = HDR_FILL
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 25
+    for col in range(1, num_cols + 1):
+        ws.cell(row=1, column=col).fill = HDR_FILL
+        ws.cell(row=1, column=col).border = BORDER
+
+    # Row 2: Static summary
+    ws.merge_cells(f"A2:{last_col_letter}2")
+    summary_cell = ws.cell(row=2, column=1,
+        value=f"Count: {count} | Total Debit: ₹{total_debit:,.2f} | Total Credit: ₹{total_credit:,.2f}")
+    summary_cell.font = Font(name="Calibri", bold=True, size=11)
+    summary_cell.alignment = Alignment(horizontal="left", vertical="center")
+    summary_cell.border = BORDER
+    ws.row_dimensions[2].height = 20
+    for col in range(2, num_cols + 1):
+        ws.cell(row=2, column=col).border = BORDER
+
+    # Row 3: spacer
+    ws.row_dimensions[3].height = 10
+    for col in range(1, num_cols + 1):
+        ws.cell(row=3, column=col).border = BORDER
+
+    # Row 4: headers
+    _write_header_row(ws, 4, display_cols)
+
+    # Row 5+: data rows
+    for r_idx, (_, row) in enumerate(sub_df.iterrows(), start=5):
+        ws.row_dimensions[r_idx].height = 18
+        for c_idx, col_name in enumerate(display_cols, start=1):
+            val = row[col_name]
+            if pd.isna(val):
+                val = None
+            cell = ws.cell(row=r_idx, column=c_idx, value=val)
+            cell.border = BORDER
+            if r_idx % 2 == 0:
+                cell.fill = ALT_FILL
+
+    if count == 0:
+        ws.merge_cells(f"A5:{last_col_letter}5")
+        empty_cell = ws.cell(row=5, column=1, value="No unclassified transactions found.")
+        empty_cell.font = Font(name="Calibri", italic=True, color="7F7F7F")
+        empty_cell.border = BORDER
+
+    # Apply currency format to Debit and Credit columns
+    if count > 0:
+        debit_col = display_cols.index("Debit") + 1 if "Debit" in display_cols else None
+        credit_col = display_cols.index("Credit") + 1 if "Credit" in display_cols else None
+        currency_cols = [c for c in [debit_col, credit_col] if c is not None]
+        if currency_cols:
+            _apply_currency_format(ws, 5, 4 + count, currency_cols)
+
+    # Column widths
+    col_widths = {
+        "Transaction_ID": 15, "Date": 14, "Bank_Name": 14,
+        "Narration": 35, "Debit": 18, "Credit": 18,
+        "Confidence": 14, "Category_Final": 20,
+    }
+    for c_idx, col_name in enumerate(display_cols, start=1):
+        ws.column_dimensions[get_column_letter(c_idx)].width = col_widths.get(col_name, 15)
+
+    ws.freeze_panes = "B5"
+
+
+def create_ca_observations_sheet(wb, df, reconciliation_discrepancies: list):
+    """
+    Phase 1.2 — CA Observations sheet.
+    Combines compliance flag audit (same 4 checks as Executive Summary) and
+    reconciliation discrepancies from reconcile_all().
+    """
+    ws = wb.create_sheet("📌 CA Observations")
+    ws.sheet_view.showGridLines = False
+
+    num_cols = 3
+
+    # Row 1: Title
+    ws.merge_cells("A1:C1")
+    title_cell = ws.cell(row=1, column=1, value="📌 CA OBSERVATIONS & RECONCILIATION DISCREPANCIES")
+    title_cell.font = Font(name="Calibri", bold=True, size=14, color="FFFFFF")
+    title_cell.fill = HDR_FILL
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 25
+    for col in range(1, num_cols + 1):
+        ws.cell(row=1, column=col).fill = HDR_FILL
+        ws.cell(row=1, column=col).border = BORDER
+
+    # Row 2: spacer
+    ws.row_dimensions[2].height = 10
+    for col in range(1, num_cols + 1):
+        ws.cell(row=2, column=col).border = BORDER
+
+    # Section A: Compliance flags — headers in row 3
+    _write_header_row(ws, 3, ["Flag", "Status", "Observations"])
+
+    # Build compliance checklist (same 4 checks as executive summary)
+    checklist = []
+
+    total_cash_dep = df[(df["Credit"] > 0.0) & (df["Category"] == "Cash")]["Credit"].sum()
+    if total_cash_dep > 200000.0:
+        checklist.append(("SFT Savings Account Cash Deposit Limit (₹2 Lakh)", "🚩 RED FLAG",
+            f"Total cash deposits of {format_inr(total_cash_dep)} exceed the ₹2 Lakh SFT threshold. Reportable under Rule 114E."))
+    else:
+        checklist.append(("SFT Savings Account Cash Deposit Limit (₹2 Lakh)", "✅ PASS",
+            f"Total cash deposits of {format_inr(total_cash_dep)} are within safe SFT limits."))
+
+    large_txns_count = df[(df["Credit"] >= 50000.0) | (df["Debit"] >= 50000.0)].shape[0]
+    if large_txns_count > 0:
+        checklist.append(("High Value Transactions (Sec 285BA / AIS Matching)", "⚠️ WARNING",
+            f"Found {large_txns_count} transaction(s) >= ₹50,000. Ensure verification against AIS details."))
+    else:
+        checklist.append(("High Value Transactions (Sec 285BA / AIS Matching)", "✅ PASS",
+            "No transactions >= ₹50,000 detected."))
+
+    has_invest = df[df["Category"] == "Investments"].shape[0] > 0
+    if has_invest:
+        checklist.append(("Tax Saving Investment Audit (Sec 80C / 80D)", "✅ DETECTED",
+            "Deduction flows found (SIP/PPF/NPS/Insurance). Verify investment challans for final computations."))
+    else:
+        checklist.append(("Tax Saving Investment Audit (Sec 80C / 80D)", "⚠️ NOT FOUND",
+            "No common tax saving investments (Sec 80C/80D) were detected in the statements."))
+
+    bounce_count = df[df["Category"] == "Bounces"].shape[0]
+    if bounce_count > 0:
+        checklist.append(("Cheque Bounce & ECS Return Audit (Sec 138 NI Act)", "🚩 RED FLAG",
+            f"Detected {bounce_count} bounce/ECS return events. Review customer ledger balances."))
+    else:
+        checklist.append(("Cheque Bounce & ECS Return Audit (Sec 138 NI Act)", "✅ PASS",
+            "No cheque bounces or mandate returns detected."))
+
+    for i, (rule, status, obs) in enumerate(checklist, start=4):
+        ws[f"A{i}"] = rule
+        ws[f"B{i}"] = status
+        ws[f"C{i}"] = obs
+        ws.row_dimensions[i].height = 18
+        for col in ["A", "B", "C"]:
+            cell = ws[f"{col}{i}"]
+            cell.border = BORDER
+            if col == "B":
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                if "RED FLAG" in status:
+                    cell.fill = PatternFill("solid", fgColor="FCE4D6")
+                    cell.font = Font(name="Calibri", bold=True, color="C00000")
+                elif "WARNING" in status or "NOT FOUND" in status:
+                    cell.fill = PatternFill("solid", fgColor="FFF2CC")
+                    cell.font = Font(name="Calibri", bold=True, color="7F6000")
+                else:
+                    cell.fill = PatternFill("solid", fgColor="E2EFDA")
+                    cell.font = Font(name="Calibri", bold=True, color="375623")
+            elif i % 2 == 0:
+                cell.fill = ALT_FILL
+
+    # Row 8: spacer
+    spacer_row = 4 + len(checklist)
+    ws.row_dimensions[spacer_row].height = 10
+    for col in range(1, num_cols + 1):
+        ws.cell(row=spacer_row, column=col).border = BORDER
+
+    # Row 9: Reconciliation Discrepancies sub-header
+    recon_header_row = spacer_row + 1
+    ws.merge_cells(f"A{recon_header_row}:C{recon_header_row}")
+    recon_hdr_cell = ws.cell(row=recon_header_row, column=1, value="Reconciliation Discrepancies")
+    recon_hdr_cell.font = Font(name="Calibri", bold=True, size=12, color="FFFFFF")
+    recon_hdr_cell.fill = HDR_FILL
+    recon_hdr_cell.alignment = Alignment(horizontal="left", vertical="center")
+    ws.row_dimensions[recon_header_row].height = 22
+    for col in range(1, num_cols + 1):
+        ws.cell(row=recon_header_row, column=col).fill = HDR_FILL
+        ws.cell(row=recon_header_row, column=col).border = BORDER
+
+    # Wide table for discrepancies — extend to 8 columns
+    recon_num_cols = 8
+    recon_col_headers = ["Bank", "Account", "Txn Index", "Prev Balance", "Expected", "Actual", "Difference", "Type"]
+
+    # Row 10: discrepancy column headers
+    recon_col_row = recon_header_row + 1
+    ws.row_dimensions[recon_col_row].height = 22
+    for c_idx, hdr in enumerate(recon_col_headers, start=1):
+        cell = ws.cell(row=recon_col_row, column=c_idx, value=hdr)
+        cell.fill = HDR_FILL
+        cell.font = HDR_FONT
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = BORDER
+
+    # Row 11+: discrepancy data
+    recon_data_start = recon_col_row + 1
+    if reconciliation_discrepancies:
+        for r_idx, disc in enumerate(reconciliation_discrepancies, start=recon_data_start):
+            ws.row_dimensions[r_idx].height = 18
+            row_vals = [
+                disc.get("bank", ""),
+                disc.get("account", ""),
+                disc.get("index", ""),
+                disc.get("prev", 0.0),
+                disc.get("expected", 0.0),
+                disc.get("actual", 0.0),
+                disc.get("diff", 0.0),
+                disc.get("type", ""),
+            ]
+            for c_idx, val in enumerate(row_vals, start=1):
+                cell = ws.cell(row=r_idx, column=c_idx, value=val)
+                cell.border = BORDER
+                if r_idx % 2 == 0:
+                    cell.fill = ALT_FILL
+        # Currency format for balance columns (4,5,6,7)
+        last_recon_row = recon_data_start + len(reconciliation_discrepancies) - 1
+        _apply_currency_format(ws, recon_data_start, last_recon_row, [4, 5, 6, 7])
+    else:
+        ws.row_dimensions[recon_data_start].height = 18
+        ws.merge_cells(f"A{recon_data_start}:H{recon_data_start}")
+        no_disc_cell = ws.cell(row=recon_data_start, column=1, value="No reconciliation discrepancies found.")
+        no_disc_cell.font = Font(name="Calibri", italic=True, color="375623")
+        no_disc_cell.border = BORDER
+
+    # Column widths
+    ws.column_dimensions["A"].width = 20
+    ws.column_dimensions["B"].width = 18
+    ws.column_dimensions["C"].width = 12
+    ws.column_dimensions["D"].width = 16
+    ws.column_dimensions["E"].width = 16
+    ws.column_dimensions["F"].width = 16
+    ws.column_dimensions["G"].width = 16
+    ws.column_dimensions["H"].width = 14
+
+    ws.freeze_panes = "B4"
+
 
 def create_transaction_sheet(wb, sheet_name, df_bank):
     """Creates a standardized bank-specific transaction ledger sheet."""

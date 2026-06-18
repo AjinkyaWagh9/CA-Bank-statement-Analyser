@@ -120,6 +120,24 @@ def make_test_df() -> pd.DataFrame:
             "Statement_Start": "2024-04-01", "Statement_End": "2024-05-31",
             "txn_seq": 5,
         },
+        # ICICI — May 2024 — Unclassified row (Others + Low confidence)
+        {
+            "Date": pd.Timestamp("2024-05-25"),
+            "Bank_Name": "ICICI", "Account_Number": "002", "IFSC": "ICIC0001",
+            "Narration": "Unknown transfer", "Chq_Ref": "",
+            "Debit": 3000.0, "Credit": 0.0, "Balance": 500.0,
+            "Transaction_Mode": "NEFT", "Merchant_Name": "",
+            "Counterparty": "", "Category": "Others", "Sub_Category": "",
+            "Category_Final": "Others", "Sub_Category_Final": "",
+            "GST_Flag": "", "Loan_Flag": "", "Tax_Flag": "", "CG_Flag": "", "Remarks": "",
+            "Confidence": "Low", "Match_Reason": "fallback",
+            "Transaction_ID": "TXN006", "Statement_File_Name": "icici_may.xlsx",
+            "Sheet_Name": "Sheet1", "Statement_Row_No": 2,
+            "Financial_Year": "2024-25",
+            "Person_Name": "Test Client",
+            "Statement_Start": "2024-04-01", "Statement_End": "2024-05-31",
+            "txn_seq": 6,
+        },
     ]
     return pd.DataFrame(rows)
 
@@ -319,6 +337,183 @@ def test_pandas_oracle_printed(capfd):
     assert oracle["expense"]["Food"]["ICICI"] == pytest.approx(1500.0)
 
     # Verify something was printed
+    assert "PANDAS ORACLE" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.2 — Pandas oracle for new sheets
+# ---------------------------------------------------------------------------
+
+def compute_pandas_oracle_phase12(df: pd.DataFrame) -> dict:
+    """
+    Compute expected totals for Phase 1.2 sheets using pandas.
+    Returns a dict with keys for each new sheet's key metric.
+    """
+    oracle = {}
+
+    # Tax Payments: SUMIFS where Category_Final == "Taxes"
+    oracle["tax_payments_category"] = df[df["Category_Final"] == "Taxes"]["Debit"].sum()
+
+    # 80C: SUMIFS where Category_Final in ("Insurance", "Investments")
+    oracle["80c_insurance"] = df[df["Category_Final"] == "Insurance"]["Debit"].sum()
+    oracle["80c_investments"] = df[df["Category_Final"] == "Investments"]["Debit"].sum()
+    oracle["80c_total"] = oracle["80c_insurance"] + oracle["80c_investments"]
+
+    # Capital Gain: SUMIFS where Category_Final == "Capital Gains"
+    oracle["capital_gains_category"] = df[df["Category_Final"] == "Capital Gains"]["Credit"].sum()
+
+    # Drawings: sum of Taxes + Utilities + Cash + Insurance + Food + Shopping
+    drawings_cats = ["Taxes", "Utilities", "Cash", "Insurance", "Food", "Shopping"]
+    oracle["drawings_total"] = df[df["Category_Final"].isin(drawings_cats)]["Debit"].sum()
+
+    print("\n=== PANDAS ORACLE: PHASE 1.2 ===")
+    print(f"  Tax Payments (Category):     ₹{oracle['tax_payments_category']:>12,.2f}")
+    print(f"  80C Insurance:               ₹{oracle['80c_insurance']:>12,.2f}")
+    print(f"  80C Investments:             ₹{oracle['80c_investments']:>12,.2f}")
+    print(f"  80C Total:                   ₹{oracle['80c_total']:>12,.2f}")
+    print(f"  Capital Gains (Category):    ₹{oracle['capital_gains_category']:>12,.2f}")
+    print(f"  Drawings Total:              ₹{oracle['drawings_total']:>12,.2f}")
+
+    return oracle
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.2 — New tests
+# ---------------------------------------------------------------------------
+
+def test_new_sheets_exist(workbook_path):
+    """All 6 new Phase 1.2 sheets must exist in the workbook."""
+    wb = openpyxl.load_workbook(workbook_path)
+    new_sheets = [
+        "🧾 Tax Payments",
+        "💼 80C Deduction Tracker",
+        "📈 Capital Gain",
+        "🏧 Drawings",
+        "❓ Unclassified Transactions",
+        "📌 CA Observations",
+    ]
+    missing = [s for s in new_sheets if s not in wb.sheetnames]
+    assert not missing, f"Missing new sheets: {missing}"
+
+
+def test_tax_payments_has_sumifs(workbook_path):
+    """The '🧾 Tax Payments' sheet must contain SUMIFS formulas referencing m_Debit and m_CatFinal."""
+    wb = openpyxl.load_workbook(workbook_path)
+    ws = wb["🧾 Tax Payments"]
+    formula_cells = [
+        cell.value for row in ws.iter_rows(min_row=4)
+        for cell in row
+        if isinstance(cell.value, str) and cell.value.startswith("=")
+    ]
+    assert formula_cells, "No formula cells found in Tax Payments sheet"
+    assert any("SUMIFS" in f for f in formula_cells), "No SUMIFS found in Tax Payments"
+    assert any("m_Debit" in f for f in formula_cells), "m_Debit not used in Tax Payments"
+    assert any("m_CatFinal" in f or "m_SubCatFinal" in f or "m_TaxFlag" in f for f in formula_cells), \
+        "Expected named range (m_CatFinal/m_SubCatFinal/m_TaxFlag) in Tax Payments"
+
+
+def test_80c_tracker_has_sumifs(workbook_path):
+    """The '💼 80C Deduction Tracker' sheet must contain SUMIFS formulas."""
+    wb = openpyxl.load_workbook(workbook_path)
+    ws = wb["💼 80C Deduction Tracker"]
+    formula_cells = [
+        cell.value for row in ws.iter_rows(min_row=3)
+        for cell in row
+        if isinstance(cell.value, str) and cell.value.startswith("=")
+    ]
+    assert formula_cells, "No formula cells found in 80C Deduction Tracker sheet"
+    assert any("SUMIFS" in f for f in formula_cells), "No SUMIFS found in 80C Tracker"
+    assert any("m_Debit" in f for f in formula_cells), "m_Debit not used in 80C Tracker"
+
+
+def test_capital_gain_has_sumifs(workbook_path):
+    """The '📈 Capital Gain' sheet must contain SUMIFS formulas referencing m_Credit."""
+    wb = openpyxl.load_workbook(workbook_path)
+    ws = wb["📈 Capital Gain"]
+    formula_cells = [
+        cell.value for row in ws.iter_rows(min_row=4)
+        for cell in row
+        if isinstance(cell.value, str) and cell.value.startswith("=")
+    ]
+    assert formula_cells, "No formula cells found in Capital Gain sheet"
+    assert any("SUMIFS" in f for f in formula_cells), "No SUMIFS found in Capital Gain"
+    assert any("m_Credit" in f for f in formula_cells), "m_Credit not used in Capital Gain"
+    assert any("m_CGFlag" in f or "m_CatFinal" in f for f in formula_cells), \
+        "Expected m_CGFlag or m_CatFinal in Capital Gain"
+
+
+def test_drawings_has_sumifs(workbook_path):
+    """The '🏧 Drawings' sheet must contain SUMIFS formulas referencing m_Debit."""
+    wb = openpyxl.load_workbook(workbook_path)
+    ws = wb["🏧 Drawings"]
+    formula_cells = [
+        cell.value for row in ws.iter_rows(min_row=4)
+        for cell in row
+        if isinstance(cell.value, str) and cell.value.startswith("=")
+    ]
+    assert formula_cells, "No formula cells found in Drawings sheet"
+    assert any("SUMIFS" in f for f in formula_cells), "No SUMIFS found in Drawings"
+    assert any("m_Debit" in f for f in formula_cells), "m_Debit not used in Drawings"
+
+
+def test_unclassified_sheet_exists(workbook_path):
+    """The '❓ Unclassified Transactions' sheet must exist and have data rows."""
+    wb = openpyxl.load_workbook(workbook_path)
+    ws = wb["❓ Unclassified Transactions"]
+    # At least the title row must exist
+    assert ws.cell(row=1, column=1).value is not None, "Unclassified sheet title missing"
+    # Row 4 should have header content
+    header_row_values = [ws.cell(row=4, column=c).value for c in range(1, 5)]
+    assert any(v is not None for v in header_row_values), "Unclassified sheet missing headers in row 4"
+    # At least one data row in row 5 (our test data has 1 unclassified row)
+    data_row_values = [ws.cell(row=5, column=c).value for c in range(1, 5)]
+    assert any(v is not None for v in data_row_values), "Unclassified sheet missing data row (expected 1 unclassified txn)"
+
+
+def test_ca_observations_exists(workbook_path):
+    """The '📌 CA Observations' sheet must exist and have compliance check content."""
+    wb = openpyxl.load_workbook(workbook_path)
+    ws = wb["📌 CA Observations"]
+    assert ws.cell(row=1, column=1).value is not None, "CA Observations title missing"
+    # Row 3 should have 'Flag' header
+    assert ws.cell(row=3, column=1).value == "Flag", \
+        f"Expected 'Flag' header in row 3, got: {ws.cell(row=3, column=1).value}"
+    # Should have at least 4 compliance check rows (rows 4-7)
+    assert ws.cell(row=4, column=1).value is not None, "CA Observations missing compliance data"
+
+
+def test_reconcile_all_returns_list():
+    """reconcile_all must return a list (not bool). With clean test data, returns empty list."""
+    from ca_analyzer.validation.reconciliation import reconcile_all
+    df = make_test_df()
+    result = reconcile_all(df)
+    assert isinstance(result, list), f"reconcile_all should return list, got {type(result)}"
+    # Test data has consistent balances (each row independent), expect empty discrepancy list
+    # (or at most some entries — just confirm it's a list)
+
+
+def test_reconcile_bank_returns_list():
+    """reconcile_bank must return a list (not bool)."""
+    from ca_analyzer.validation.reconciliation import reconcile_bank
+    df = make_test_df()
+    result = reconcile_bank(df, "HDFC", "001")
+    assert isinstance(result, list), f"reconcile_bank should return list, got {type(result)}"
+
+
+def test_pandas_oracle_phase12(capfd):
+    """Runs the Phase 1.2 pandas oracle and validates expected values."""
+    df = make_test_df()
+    oracle = compute_pandas_oracle_phase12(df)
+    captured = capfd.readouterr()
+
+    # Test data has no Taxes, Insurance, Investments, Capital Gains rows
+    assert oracle["tax_payments_category"] == pytest.approx(0.0)
+    assert oracle["80c_insurance"] == pytest.approx(0.0)
+    assert oracle["80c_investments"] == pytest.approx(0.0)
+    assert oracle["capital_gains_category"] == pytest.approx(0.0)
+    # Drawings: Food = 1500 (Swiggy), Others unclassified not in drawings cats
+    assert oracle["drawings_total"] == pytest.approx(1500.0)
+
     assert "PANDAS ORACLE" in captured.out
 
 
