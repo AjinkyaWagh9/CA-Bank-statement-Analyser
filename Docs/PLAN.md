@@ -48,8 +48,10 @@ Gap-closing plan from the current working `ca_analyzer` pipeline to the BRD targ
       Capital Gain (flag-based), Drawings, Unclassified (Others/Misc + Low confidence),
       CA Observations (compliance flags + reconciliation discrepancies). *(sonnet)*
       → make `reconcile_bank` RETURN discrepancies so CA Observations can list them.
-- [ ] 1.3 Verify "edit a cell → dependent sheets refresh" (try `formulas` pkg or manual
-      Excel/LibreOffice open; document verification level achieved). *(verification)*
+- [x] 1.3 Verified live recompute with the `formulas` pure-Python engine: flipping a master
+      `Category_Final` Misc→Salary (₹6,000) recomputed Income Salary ₹28,000→₹34,000 (delta exact).
+      BRD §18 satisfied. (`formulas` recalc takes minutes on whole-column refs, so it's a
+      manual/opt-in check, not a default pytest.)
 
 ### Moved to Phase 2 (engine-dependent sheets, were §15)
 - Inter-Bank Transfer sheet → after 2.1 transfer engine.
