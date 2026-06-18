@@ -21,9 +21,11 @@ surcharge_thresholds:
 cess_rate: 0.04
 
 llm:
-  enabled: false              # privacy/cost gate — off by default
-  provider: "openai"
-  model: "gpt-4o-mini"        # 4o family; set to "gpt-4o" for higher accuracy
-  api_key_env: "OPENAI_API_KEY"
+  enabled: false                                  # privacy/cost gate — off by default
+  provider: "openai"                              # OpenAI-compatible SDK (OpenAI or NVIDIA NIM)
+  base_url: "https://integrate.api.nvidia.com/v1" # blank "" = default OpenAI cloud
+  model: "moonshotai/kimi-k2.6"
+  api_key_env: "NVIDIA_API_KEY"
+  temperature: 0                                  # 0 required for sane Kimi output
   chunk_size: 25
   max_rows: 2000

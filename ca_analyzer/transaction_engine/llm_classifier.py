@@ -88,12 +88,16 @@ def _build_pydantic_models():
 # Tests can monkeypatch this function directly to avoid real SDK/cred calls.
 # ---------------------------------------------------------------------------
 
-def _build_client_and_model(cfg: dict) -> Tuple[Optional[object], Optional[str]]:
+def _build_client_and_model(cfg: dict) -> Tuple[Optional[object], Optional[str], int]:
     """
-    Build the OpenAI client and resolve the model id from config.
+    Build the OpenAI-compatible client and resolve the model id from config.
 
-    Returns (client, model_id) on success, or (None, None) when the provider is
-    unavailable (missing SDK import, missing API key, etc.).
+    Returns (client, model_id, temperature) on success, or (None, None, 0) when
+    the provider is unavailable (missing SDK import, missing API key, etc.).
+
+    The client is constructed with an optional base_url so the same code works
+    for both the OpenAI cloud (base_url empty/absent) and NVIDIA NIM or any
+    other OpenAI-compatible endpoint (base_url set).
     """
     try:
         from openai import OpenAI  # noqa: PLC0415
@@ -102,9 +106,9 @@ def _build_client_and_model(cfg: dict) -> Tuple[Optional[object], Optional[str]]
             "LLM classifier: 'openai' package is not installed. "
             "Install it with: pip install openai. Skipping LLM classification."
         )
-        return None, None
+        return None, None, 0
 
-    api_key_env: str = cfg.get("api_key_env", "OPENAI_API_KEY")
+    api_key_env: str = cfg.get("api_key_env", "NVIDIA_API_KEY")
     api_key = os.environ.get(api_key_env)
     if not api_key:
         logger.warning(
@@ -112,16 +116,20 @@ def _build_client_and_model(cfg: dict) -> Tuple[Optional[object], Optional[str]]
             "Skipping LLM classification.",
             api_key_env,
         )
-        return None, None
+        return None, None, 0
 
-    model_id: str = cfg.get("model", "gpt-4o-mini") or "gpt-4o-mini"
+    model_id: str = cfg.get("model", "moonshotai/kimi-k2.6") or "moonshotai/kimi-k2.6"
+    temperature: int = int(cfg.get("temperature", 0))
+
+    # Use base_url when provided (e.g. NVIDIA NIM); None falls back to OpenAI cloud.
+    base_url = cfg.get("base_url") or None
 
     try:
-        client = OpenAI()  # reads OPENAI_API_KEY from env automatically
-        return client, model_id
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        return client, model_id, temperature
     except Exception as exc:  # noqa: BLE001
         logger.warning("LLM classifier: Failed to construct OpenAI client: %s", exc)
-        return None, None
+        return None, None, 0
 
 
 # ---------------------------------------------------------------------------
@@ -142,8 +150,10 @@ def classify_with_llm(df: pd.DataFrame) -> pd.DataFrame:
     Config keys read from thresholds.yaml:
       llm.enabled       (bool, default false)
       llm.provider      (str,  "openai")
-      llm.model         (str,  default "gpt-4o-mini")
-      llm.api_key_env   (str,  env var name for OpenAI API key)
+      llm.base_url      (str,  optional; "" or absent → OpenAI cloud; set for NVIDIA NIM etc.)
+      llm.model         (str,  default "moonshotai/kimi-k2.6")
+      llm.api_key_env   (str,  env var name for API key, default "NVIDIA_API_KEY")
+      llm.temperature   (int,  default 0; must be 0 for Kimi to produce sane output)
       llm.chunk_size    (int,  default 25)
       llm.max_rows      (int,  default 2000)
     """
@@ -158,7 +168,7 @@ def classify_with_llm(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     # SDK / credentials availability check — build client and resolve model id
-    client, model = _build_client_and_model(llm_cfg)
+    client, model, temperature = _build_client_and_model(llm_cfg)
     if client is None:
         return df
 
@@ -225,6 +235,7 @@ def classify_with_llm(df: pd.DataFrame) -> pd.DataFrame:
                     {"role": "user", "content": user_text},
                 ],
                 response_format=ChunkResult,
+                temperature=temperature,
             )
             msg = completion.choices[0].message
             if getattr(msg, "refusal", None):   # safety refusal → skip this chunk

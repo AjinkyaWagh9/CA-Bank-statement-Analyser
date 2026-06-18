@@ -60,9 +60,9 @@ def test_flag_off_returns_df_unchanged():
 
 def test_missing_key_returns_df_unchanged_with_warning(caplog):
     """
-    When provider=openai and OPENAI_API_KEY is absent, classify_with_llm must:
+    When provider=openai and NVIDIA_API_KEY is absent, classify_with_llm must:
     - return df unchanged
-    - log a warning naming the missing env var
+    - log a warning naming the missing env var (NVIDIA_API_KEY)
     """
     from ca_analyzer.transaction_engine import llm_classifier  # noqa: PLC0415
 
@@ -72,8 +72,10 @@ def test_missing_key_returns_df_unchanged_with_warning(caplog):
         "llm": {
             "enabled": True,
             "provider": "openai",
-            "model": "gpt-4o-mini",
-            "api_key_env": "OPENAI_API_KEY",
+            "base_url": "https://integrate.api.nvidia.com/v1",
+            "model": "moonshotai/kimi-k2.6",
+            "api_key_env": "NVIDIA_API_KEY",
+            "temperature": 0,
             "chunk_size": 25,
             "max_rows": 2000,
         }
@@ -93,7 +95,7 @@ def test_missing_key_returns_df_unchanged_with_warning(caplog):
     env_without_key = {
         k: v
         for k, v in os.environ.items()
-        if k != "OPENAI_API_KEY"
+        if k != "NVIDIA_API_KEY"
     }
 
     with patch.object(llm_classifier.config, "thresholds", patched_thresholds):
@@ -106,8 +108,8 @@ def test_missing_key_returns_df_unchanged_with_warning(caplog):
     warning_messages = " ".join(caplog.messages)
     assert any(
         phrase in warning_messages
-        for phrase in ("OPENAI_API_KEY", "API key", "api key", "No API key", "no api key")
-    ), f"Expected OPENAI_API_KEY-related warning, got: {caplog.messages}"
+        for phrase in ("NVIDIA_API_KEY", "API key", "api key", "No API key", "no api key")
+    ), f"Expected NVIDIA_API_KEY-related warning, got: {caplog.messages}"
 
 
 # ---------------------------------------------------------------------------
@@ -151,15 +153,28 @@ def test_mocked_client_reclassifies_others_rows():
     mock_completion = MagicMock()
     mock_completion.choices = [mock_choice]
 
+    # Use a real function for parse so we can capture kwargs (including temperature).
+    parse_calls = []
+
+    class _FakeBetaCompletions:
+        def parse(self, **kwargs):
+            parse_calls.append(kwargs)
+            return mock_completion
+
+    class _FakeBeta:
+        chat = type("_FakeChat", (), {"completions": _FakeBetaCompletions()})()
+
     mock_client = MagicMock()
-    mock_client.beta.chat.completions.parse.return_value = mock_completion
+    mock_client.beta = _FakeBeta()
 
     patched_thresholds = {
         "llm": {
             "enabled": True,
             "provider": "openai",
-            "model": "gpt-4o-mini",
-            "api_key_env": "OPENAI_API_KEY",
+            "base_url": "https://integrate.api.nvidia.com/v1",
+            "model": "moonshotai/kimi-k2.6",
+            "api_key_env": "NVIDIA_API_KEY",
+            "temperature": 0,
             "chunk_size": 25,
             "max_rows": 2000,
         }
@@ -168,9 +183,15 @@ def test_mocked_client_reclassifies_others_rows():
     with patch.object(llm_classifier.config, "thresholds", patched_thresholds):
         with patch.object(
             llm_classifier, "_build_client_and_model",
-            return_value=(mock_client, "gpt-4o-mini"),
+            return_value=(mock_client, "moonshotai/kimi-k2.6", 0),
         ):
             result = llm_classifier.classify_with_llm(df)
+
+    # Verify temperature=0 was forwarded to the parse call
+    assert parse_calls, "parse() was never called"
+    assert parse_calls[0].get("temperature") == 0, (
+        f"Expected temperature=0 in parse call, got: {parse_calls[0]}"
+    )
 
     # Row 0 (was "Others"): should be reclassified to Food
     assert result.at[0, "Category"] == "Food"
@@ -231,8 +252,10 @@ def test_out_of_taxonomy_category_not_written():
         "llm": {
             "enabled": True,
             "provider": "openai",
-            "model": "gpt-4o-mini",
-            "api_key_env": "OPENAI_API_KEY",
+            "base_url": "https://integrate.api.nvidia.com/v1",
+            "model": "moonshotai/kimi-k2.6",
+            "api_key_env": "NVIDIA_API_KEY",
+            "temperature": 0,
             "chunk_size": 25,
             "max_rows": 2000,
         }
@@ -241,7 +264,7 @@ def test_out_of_taxonomy_category_not_written():
     with patch.object(llm_classifier.config, "thresholds", patched_thresholds):
         with patch.object(
             llm_classifier, "_build_client_and_model",
-            return_value=(mock_client, "gpt-4o-mini"),
+            return_value=(mock_client, "moonshotai/kimi-k2.6", 0),
         ):
             result = llm_classifier.classify_with_llm(df)
 
@@ -277,8 +300,10 @@ def test_refusal_skips_chunk():
         "llm": {
             "enabled": True,
             "provider": "openai",
-            "model": "gpt-4o-mini",
-            "api_key_env": "OPENAI_API_KEY",
+            "base_url": "https://integrate.api.nvidia.com/v1",
+            "model": "moonshotai/kimi-k2.6",
+            "api_key_env": "NVIDIA_API_KEY",
+            "temperature": 0,
             "chunk_size": 25,
             "max_rows": 2000,
         }
@@ -287,7 +312,7 @@ def test_refusal_skips_chunk():
     with patch.object(llm_classifier.config, "thresholds", patched_thresholds):
         with patch.object(
             llm_classifier, "_build_client_and_model",
-            return_value=(mock_client, "gpt-4o-mini"),
+            return_value=(mock_client, "moonshotai/kimi-k2.6", 0),
         ):
             result = llm_classifier.classify_with_llm(df)
 
