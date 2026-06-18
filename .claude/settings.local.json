@@ -18,7 +18,10 @@
       "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'Phase 1.1: formula-driven core summary sheets + named ranges *)",
       "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'docs: mark Phase 1.1 done; resequence engine-dependent sheets to Phase 2 *)",
       "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'Phase 1.2: formula-driven Tax/80C/Capital Gain/Drawings + Unclassified + CA Observations *)",
-      "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'docs: Phase 1.3 verified \\(live recompute proof\\) — Phase 1 complete *)"
+      "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'docs: Phase 1.3 verified \\(live recompute proof\\) — Phase 1 complete *)",
+      "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'docs: mark Phase 2 complete *)",
+      "Skill(claude-api)",
+      "Bash(git -c 'user.name=Ajinkya Wagh' -c user.email=digital@bajajcapitalinsurance.com commit -q -m 'Phase 3.2: LLM fallback classifier \\(Amazon Bedrock + Anthropic\\), gated off by default *)"
     ]
   }
 }

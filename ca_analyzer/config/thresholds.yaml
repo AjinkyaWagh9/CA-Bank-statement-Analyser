@@ -19,3 +19,14 @@ surcharge_thresholds:
     rate: 0.10
 
 cess_rate: 0.04
+
+llm:
+  enabled: false
+  provider: "bedrock"          # "bedrock" | "anthropic"
+  model: ""                    # if blank, resolved from env per provider (see below)
+  bedrock_model_env: "BEDROCK_HAIKU_INFERENCE_PROFILE_ID"
+  bedrock_model_default: "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+  bedrock_region_env: "AWS_REGION"
+  anthropic_model_default: "claude-haiku-4-5"
+  chunk_size: 25
+  max_rows: 2000

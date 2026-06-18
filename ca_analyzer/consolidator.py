@@ -16,6 +16,7 @@ from ca_analyzer.transaction_engine.category_engine import apply_categorization
 from ca_analyzer.transaction_engine.inter_bank_transfer import tag_inter_bank_transfers
 from ca_analyzer.transaction_engine.loan_matcher import match_loans, build_loan_ledger
 from ca_analyzer.transaction_engine.salary_detector import detect_salary
+from ca_analyzer.transaction_engine.llm_classifier import classify_with_llm
 from ca_analyzer.presentation import build_ca_report
 
 logger = get_logger("consolidator")
@@ -130,6 +131,9 @@ def consolidate_statements(filepaths: list, output_xlsx: str) -> str:
     salary_count = (consolidated_df["Category"] == "Salary").sum()
     logger.info(f"Salary rows (after detector): {salary_count}")
     print(f"Salary rows (after detector): {salary_count}")
+
+    # Engine 4: LLM fallback classifier (no-op when llm.enabled=false in thresholds.yaml)
+    consolidated_df = classify_with_llm(consolidated_df)
 
     # -----------------------------------------------------------------------
     # RE-SYNC Category_Final / Sub_Category_Final AFTER engines
